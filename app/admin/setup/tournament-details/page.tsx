@@ -67,7 +67,7 @@ export default function TournamentDetailsPage() {
     setIsSubmitting(true);
 
     try {
-      // Validate fields
+      
       const filteredFields = formData.fields.filter((field) => field.trim() !== '');
       if (filteredFields.length === 0) {
         throw new Error('Please add at least one field');
@@ -78,7 +78,7 @@ export default function TournamentDetailsPage() {
         fields: filteredFields,
       };
 
-      // API call to save tournament
+      // API 
       const response = await fetch('/api/admin/routes', {
         method: 'POST',
         headers: {
@@ -94,7 +94,7 @@ export default function TournamentDetailsPage() {
 
        const result = await response.json();
       
-      // Redirect 
+      // (Redirect )
       router.push(`/admin/setup/teams?tournamentId=${result.tournamentId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
