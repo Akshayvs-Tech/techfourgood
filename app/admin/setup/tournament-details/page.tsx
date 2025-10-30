@@ -17,25 +17,6 @@ interface TournamentFormData{
 
 export default function TournamentDetailsPage() {
     const router = useRouter();
-    async function parseResponseJSON(resp: Response): Promise<any | null> {
-      const contentType = resp.headers.get('content-type') || '';
-      if (contentType.includes('application/json')) {
-        try {
-          return await resp.json();
-        } catch (e) {
-          const text = await resp.text();
-          throw new Error(text || 'Invalid JSON in response');
-        }
-      }
-
-      const text = await resp.text();
-      if (!text) return null;
-      try {
-        return JSON.parse(text);
-      } catch (e) {
-        throw new Error(text);
-      }
-    }
     const [formData,setFormData]=useState<TournamentFormData>({
         tournamentName: '',
         tournamentId: '',
@@ -107,25 +88,14 @@ export default function TournamentDetailsPage() {
       });
 
       if (!response.ok) {
-        // Try to parse JSON safely; if it's not JSON, parseResponseJSON will
-        // throw a readable error or return null.
-        try {
-          const errorData = await parseResponseJSON(response);
-          throw new Error(errorData?.message || 'Failed to create tournament');
-        } catch (parseErr) {
-          // If parsing fails, surface the parse error message (likely HTML/text)
-          throw parseErr instanceof Error ? parseErr : new Error('Failed to create tournament');
-        }
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to create tournament');
       }
 
-       // Attempt to parse a successful JSON response safely
-       const result = await parseResponseJSON(response);
-       if (!result || !result.tournamentId) {
-         throw new Error('Invalid server response: missing tournamentId');
-       }
-
-      // Redirect
-      router.push(`/admin/setup/forms-setup?tournamentId=${result.tournamentId}`);
+       const result = await response.json();
+      
+      // Redirect 
+      router.push(`/admin/setup/teams?tournamentId=${result.tournamentId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
