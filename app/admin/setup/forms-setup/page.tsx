@@ -1,10 +1,10 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 interface FormField {
   id: string;
-  label: string; //"Full Name", "Date of Birth"
+  label: string;
   fieldType: "text" | "email" | "date" | "select";
   options: string[];
   isRequired: boolean;
@@ -17,15 +17,18 @@ interface FormSetupData {
 
 export default function FormsSetupPage() {
   const router = useRouter();
-  // Safe JSON parser for responses (handles non-JSON/empty bodies)
-  async function parseResponseJSON(resp: Response): Promise<any | null> {
-    const contentType = resp.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
+
+  
+  async function parseResponseJSON(
+    resp: Response
+  ): Promise<Record<string, unknown> | null> {
+    const contentType = resp.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
       try {
         return await resp.json();
       } catch (e) {
         const text = await resp.text();
-        throw new Error(text || 'Invalid JSON in response');
+        throw new Error(text || "Invalid JSON in response");
       }
     }
     const text = await resp.text();
@@ -36,13 +39,14 @@ export default function FormsSetupPage() {
       throw new Error(text);
     }
   }
+
   const searchParams = useSearchParams();
   const tournamentId = searchParams.get("tournamentId");
 
   const [fields, setFields] = useState<FormField[]>([
     {
       id: "field-1",
-      label: "Full Name",
+      label: "Full Name", // ✅ CHANGED: Added default label
       fieldType: "text",
       options: [],
       isRequired: true,
@@ -83,15 +87,21 @@ export default function FormsSetupPage() {
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => {
     const { name, value, type } = e.target;
-    
+
     setFields((prev) =>
       prev.map((field) => {
         if (field.id === id) {
           if (type === "checkbox") {
-            return { ...field, isRequired: (e.target as HTMLInputElement).checked };
+            return {
+              ...field,
+              isRequired: (e.target as HTMLInputElement).checked,
+            };
           }
           if (name === "options") {
-            return { ...field, options: value.split(',').map(opt => opt.trim()) };
+            return {
+              ...field,
+              options: value.split(",").map((opt) => opt.trim()),
+            };
           }
           return { ...field, [name]: value };
         }
@@ -110,7 +120,7 @@ export default function FormsSetupPage() {
         throw new Error("No Tournament ID found. Cannot save form.");
       }
 
-      const hasEmptyLabel = fields.some(field => field.label.trim() === "");
+      const hasEmptyLabel = fields.some((field) => field.label.trim() === "");
       if (hasEmptyLabel) {
         throw new Error("All field labels must be filled out.");
       }
@@ -120,7 +130,8 @@ export default function FormsSetupPage() {
         fields: fields,
       };
 
-      const response = await fetch("/api/admin/form-setup", {
+      
+      const response = await fetch("/api/admin/setup/forms", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
@@ -129,43 +140,47 @@ export default function FormsSetupPage() {
       if (!response.ok) {
         try {
           const errorData = await parseResponseJSON(response);
-          throw new Error(errorData?.message || 'Failed to save form settings');
+          throw new Error(
+            (errorData?.message as string) || "Failed to save form settings"
+          );
         } catch (parseErr) {
-          throw parseErr instanceof Error ? parseErr : new Error('Failed to save form settings');
+          throw parseErr instanceof Error
+            ? parseErr
+            : new Error("Failed to save form settings");
         }
       }
 
-      const result = await parseResponseJSON(response);
-      // On success, redirect to spirit-config. We expect the server to echo the tournamentId.
-      router.push(`/admin/setup/spirit-config?tournamentId=${tournamentId}`);
+      await parseResponseJSON(response);
 
+      // On success, redirect to spirit-config
+      router.push(`/admin/setup/spirit-config?tournamentId=${tournamentId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
       setIsSubmitting(false);
     }
   };
-  
+
   if (!tournamentId) {
     return (
-       <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
-         <div className="max-w-3xl mx-auto">
-           <div className="bg-white shadow-md rounded-lg p-6 text-center">
-             <h2 className="text-2xl font-bold text-red-700 mb-4">Error</h2>
-             <p className="text-gray-700">
-               No tournament ID was provided. Please go back to the Tournament Details
-               page and start over.
-             </p>
-             <button
+      <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-3xl mx-auto">
+          <div className="bg-white shadow-md rounded-lg p-6 text-center">
+            <h2 className="text-2xl font-bold text-red-700 mb-4">Error</h2>
+            <p className="text-gray-700">
+              No tournament ID was provided. Please go back to the Tournament
+              Details page and start over.
+            </p>
+            <button
               type="button"
-              onClick={() => router.push('/admin/setup/tournament-details')}
+              onClick={() => router.push("/admin/setup/tournament-details")}
               className="mt-6 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700"
             >
               Back to Tournament Details
             </button>
-           </div>
-         </div>
-       </div>
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -188,7 +203,7 @@ export default function FormsSetupPage() {
 
           <form onSubmit={handleSubmit} className="space-y-8">
             <div className="space-y-6">
-              {fields.map((field, index) => (
+              {fields.map((field) => (
                 <div
                   key={field.id}
                   className="p-4 border border-gray-200 rounded-lg shadow-sm"
