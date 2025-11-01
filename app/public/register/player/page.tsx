@@ -223,10 +223,10 @@ export default function RegisterPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <div className="text-left">
-                  <h4 className="font-medium text-blue-900 mb-1">What's Next?</h4>
+                  <h4 className="font-medium text-blue-900 mb-1">What is Next?</h4>
                   <p className="text-sm text-blue-700">
-                    Your registration is now under review by the tournament director. 
-                    You'll receive an email confirmation once your team is approved.
+                    Your registration is now under review by the tournament director.
+                    You will receive an email confirmation once your team is approved.
                   </p>
                 </div>
               </div>

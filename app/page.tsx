@@ -3,7 +3,7 @@ import BackgroundSlider from "./component/BackgroundSlider";
 import LiveScoreTable from "./component/LivescoreTable";
 import { Button } from "@/components/ui/button"
 import { useRouter } from 'next/navigation';
-import RegisterPage from "./public/register/page";
+
 
 export default function HomePage() {
     const router = useRouter();
@@ -26,7 +26,7 @@ export default function HomePage() {
             className="text-white font-extrabold justify-center text-base items-center pt-3">Create New Tournament</Button>
         </div>
       </div>
-      <RegisterPage />
+      
     </div>
   );
 }
