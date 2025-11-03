@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
 
 interface SpiritConfigData {
   categories: string[];
@@ -14,27 +15,103 @@ interface SpiritConfigData {
 }
 
 const DEFAULT_CATEGORIES = [
-  "",
-  "",
-  "",
-  "",
-  "",
+  "Rules Knowledge",
+  "Fouls and Body Contact",
+  "Fair-Mindedness",
+  "Positive Attitude",
+  "Communication",
 ];
+
+const DEFAULT_CONFIG: SpiritConfigData = {
+  categories: [...DEFAULT_CATEGORIES],
+  scoringScale: {
+    min: 0,
+    max: 4,
+  },
+  realtimePublicDisplay: false,
+  submissionWindowHours: 24,
+};
 
 export default function SpiritScoreConfig() {
   const router = useRouter();
-  const [configData, setConfigData] = useState<SpiritConfigData>({
-    categories: [...DEFAULT_CATEGORIES],
-    scoringScale: {
-      min: 0,
-      max: 4,
-    },
-    realtimePublicDisplay: false,
-    submissionWindowHours: 24,
-  });
+  const searchParams = useSearchParams();
+  const tournamentId = searchParams.get("tournamentId");
 
+  const [configData, setConfigData] =
+    useState<SpiritConfigData>(DEFAULT_CONFIG);
+  const [originalConfig, setOriginalConfig] =
+    useState<SpiritConfigData>(DEFAULT_CONFIG);
+
+  const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [hasChanges, setHasChanges] = useState(false);
+
+  // Fetch existing configuration on component mount
+  useEffect(() => {
+    fetchSpiritConfig();
+  }, [tournamentId]);
+
+  // Check for changes
+  useEffect(() => {
+    const hasChanged =
+      JSON.stringify(configData) !== JSON.stringify(originalConfig);
+    setHasChanges(hasChanged);
+  }, [configData, originalConfig]);
+
+  const fetchSpiritConfig = async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // TODO: Replace with actual API call
+      const url = tournamentId
+        ? `/api/admin/setup/spirit-config?tournamentId=${tournamentId}`
+        : `/api/admin/setup/spirit-config`;
+
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          // No config exists yet, use defaults
+          console.log("No existing config found, using defaults");
+          setConfigData(DEFAULT_CONFIG);
+          setOriginalConfig(DEFAULT_CONFIG);
+          setIsLoading(false);
+          return;
+        }
+        throw new Error("Failed to fetch spirit configuration");
+      }
+
+      const data = await response.json();
+
+      // Validate and set the fetched data
+      const fetchedConfig: SpiritConfigData = {
+        categories: data.categories || DEFAULT_CATEGORIES,
+        scoringScale: data.scoringScale || DEFAULT_CONFIG.scoringScale,
+        realtimePublicDisplay:
+          data.realtimePublicDisplay ?? DEFAULT_CONFIG.realtimePublicDisplay,
+        submissionWindowHours:
+          data.submissionWindowHours || DEFAULT_CONFIG.submissionWindowHours,
+      };
+
+      setConfigData(fetchedConfig);
+      setOriginalConfig(fetchedConfig);
+
+      console.log("Fetched spirit config:", fetchedConfig);
+    } catch (err) {
+      console.error("Error fetching spirit config:", err);
+      setError(
+        err instanceof Error ? err.message : "Failed to load configuration"
+      );
+      // Use defaults on error
+      setConfigData(DEFAULT_CONFIG);
+      setOriginalConfig(DEFAULT_CONFIG);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleCategoryChange = (index: number, value: string) => {
     const updatedCategories = [...configData.categories];
@@ -63,82 +140,153 @@ export default function SpiritScoreConfig() {
   };
 
   const handleResetToDefaults = () => {
-    setConfigData({
-      categories: [...DEFAULT_CATEGORIES],
-      scoringScale: {
-        min: 0,
-        max: 4,
-      },
-      realtimePublicDisplay: false,
-      submissionWindowHours: 24,
-    });
+    setConfigData(DEFAULT_CONFIG);
     setSuccessMessage("Configuration reset to defaults");
+    setTimeout(() => setSuccessMessage(null), 3000);
+  };
+
+  const handleRevertChanges = () => {
+    setConfigData(originalConfig);
+    setSuccessMessage("Changes reverted to saved configuration");
     setTimeout(() => setSuccessMessage(null), 3000);
   };
 
   const handleSaveConfiguration = async () => {
     setIsSubmitting(true);
     setSuccessMessage(null);
+    setError(null);
 
     try {
-      
+      // Validation
       const hasEmptyCategory = configData.categories.some(
         (cat) => cat.trim() === ""
       );
       if (hasEmptyCategory) {
-        alert("Please fill in all category names");
+        setError("Please fill in all category names");
         setIsSubmitting(false);
         return;
       }
 
-      console.log("Spirit Score Configuration:", configData);
+      if (
+        configData.submissionWindowHours < 1 ||
+        configData.submissionWindowHours > 168
+      ) {
+        setError("Submission window must be between 1 and 168 hours");
+        setIsSubmitting(false);
+        return;
+      }
 
-       
+      // Prepare payload
+      const payload = {
+        ...configData,
+        ...(tournamentId && { tournamentId }),
+      };
+
+      console.log("Saving Spirit Score Configuration:", payload);
+
       const response = await fetch("/api/admin/setup/spirit-config", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(configData),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
-        throw new Error("Failed to save configuration");
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to save configuration");
       }
 
       const result = await response.json();
       console.log("Configuration saved successfully:", result);
 
-      setSuccessMessage("Spirit score configuration saved successfully!");
+      // Update original config to match saved data
+      setOriginalConfig(configData);
+      setSuccessMessage(
+        "Spirit score configuration saved successfully! Redirecting to roster review..."
+      );
 
-      //redirect
-    //   setTimeout(() => {
-    //     router.push("/admin/setup/teams");
-    //   }, 2000);
-
-    } catch (error) {
-      console.error("Error saving configuration:", error);
-      alert("Failed to save configuration. Please try again.");
+      // Redirect to roster review dashboard after 2 seconds
+      setTimeout(() => {
+        router.push(
+          `/admin/registration/roster-review?tournamentId=${tournamentId}`
+        );
+      }, 2000);
+    } catch (err) {
+      console.error("Error saving configuration:", err);
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to save configuration. Please try again."
+      );
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  // Loading State
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 animate-spin text-blue-600 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold text-gray-700">
+            Loading Spirit Configuration...
+          </h2>
+          <p className="text-gray-500 mt-2">Fetching saved settings</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-3xl mx-auto">
         <div className="bg-white shadow-md rounded-lg p-6">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Spirit Score Configuration
-          </h1>
-          <p className="text-gray-600 mb-6">
-            Configure the spirit scoring categories and settings for your
-            tournament
-          </p>
+          {/* Header */}
+          <div className="mb-6">
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">
+              Spirit Score Configuration
+            </h1>
+            <p className="text-gray-600">
+              Configure the spirit scoring categories and settings for your
+              tournament
+            </p>
+            {tournamentId && (
+              <p className="text-sm text-blue-600 mt-2">
+                Tournament ID: {tournamentId}
+              </p>
+            )}
+          </div>
 
+          {/* Success Message */}
           {successMessage && (
-            <div className="mb-6 p-4 bg-green-50 border border-green-200 text-green-700 rounded-md">
-              {successMessage}
+            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-md flex items-start gap-3">
+              <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+              <p className="text-green-700">{successMessage}</p>
+            </div>
+          )}
+
+          {/* Error Message */}
+          {error && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-md flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+              <p className="text-red-700">{error}</p>
+            </div>
+          )}
+
+          {/* Unsaved Changes Warning */}
+          {hasChanges && (
+            <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-md flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-yellow-800 font-medium">
+                  You have unsaved changes
+                </p>
+                <p className="text-yellow-700 text-sm mt-1">
+                  Save your changes or revert to the last saved configuration
+                </p>
+              </div>
             </div>
           )}
 
@@ -148,7 +296,9 @@ export default function SpiritScoreConfig() {
               Standard Scoring Scale
             </h2>
             <div className="flex items-center gap-4">
-              <span className="text-2xl font-bold text-blue-600">0 - 4</span>
+              <span className="text-2xl font-bold text-blue-600">
+                {configData.scoringScale.min} - {configData.scoringScale.max}
+              </span>
               <span className="text-sm text-gray-700">
                 (0 = Poor, 1 = Below Average, 2 = Average, 3 = Good, 4 =
                 Excellent)
@@ -180,23 +330,16 @@ export default function SpiritScoreConfig() {
                     onChange={(e) =>
                       handleCategoryChange(index, e.target.value)
                     }
-                    placeholder={`e.g., ${
-                      index === 0
-                        ? "Rules Knowledge"
-                        : index === 1
-                        ? "Fouls and Body Contact"
-                        : index === 2
-                        ? "Fair-Mindedness"
-                        : index === 3
-                        ? "Positive Attitude"
-                        : "Communication"
-                    }`}
+                    placeholder={`e.g., ${DEFAULT_CATEGORIES[index]}`}
                     className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     required
                   />
                 </div>
               ))}
             </div>
+            <p className="text-xs text-gray-500 mt-2">
+              Default categories: {DEFAULT_CATEGORIES.join(", ")}
+            </p>
           </div>
 
           {/* Configuration Settings */}
@@ -264,21 +407,40 @@ export default function SpiritScoreConfig() {
                 required
               />
               <p className="text-xs text-gray-500 mt-1">
-                Recommended: 24-48 hours
+                Recommended: 24-48 hours (Max: 168 hours / 1 week)
               </p>
             </div>
           </div>
 
           {/* Action Buttons */}
-          <div className="flex gap-4">
+          <div className="flex flex-col sm:flex-row gap-4">
             <button
               type="button"
               onClick={handleSaveConfiguration}
-              disabled={isSubmitting}
-              className="flex-1 bg-blue-600 text-white py-3 px-6 rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium transition-colors"
+              disabled={isSubmitting || !hasChanges}
+              className="flex-1 bg-blue-600 text-white py-3 px-6 rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium transition-colors flex items-center justify-center gap-2"
             >
-              {isSubmitting ? "Saving Configuration..." : "Save Configuration"}
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Saving Configuration...
+                </>
+              ) : (
+                "Save Configuration"
+              )}
             </button>
+
+            {hasChanges && (
+              <button
+                type="button"
+                onClick={handleRevertChanges}
+                disabled={isSubmitting}
+                className="px-6 py-3 border border-gray-300 bg-white text-gray-700 rounded-md hover:bg-gray-50 disabled:bg-gray-100 disabled:cursor-not-allowed font-medium transition-colors"
+              >
+                Revert Changes
+              </button>
+            )}
+
             <button
               type="button"
               onClick={handleResetToDefaults}
@@ -287,6 +449,15 @@ export default function SpiritScoreConfig() {
             >
               Reset to Defaults
             </button>
+          </div>
+
+          {/* Info Footer */}
+          <div className="mt-6 p-4 bg-gray-50 rounded-md border border-gray-200">
+            <p className="text-sm text-gray-600">
+              <strong>Note:</strong> Changes to spirit scoring configuration
+              will apply to all future spirit score submissions. Existing
+              submissions will not be affected.
+            </p>
           </div>
         </div>
       </div>
