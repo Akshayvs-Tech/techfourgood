@@ -10,7 +10,8 @@ interface SelectedPlayer extends IPlayer {
 export default function RosterSubmitPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const tournamentId = searchParams.get("tournamentId");
+  // Use default tournament if not provided in URL
+  const tournamentId = searchParams.get("tournamentId") || "default-tournament";
   const teamId = searchParams.get("teamId");
 
   const getPlayerName = (player: IPlayer): string => {
@@ -90,10 +91,11 @@ export default function RosterSubmitPage() {
     }
   }, [tournamentId, teamId]);
 
- 
   useEffect(() => {
-    if (!tournamentId || !teamId) {
-      setError("Tournament ID and Team ID are required");
+    if (!teamId) {
+      setError(
+        "Team ID is required. Please complete player registration first."
+      );
       setIsLoading(false);
       return;
     }
@@ -335,7 +337,6 @@ export default function RosterSubmitPage() {
                               className="h-5 w-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                             />
                             <div>
-                              
                               <h4 className="font-medium text-gray-900">
                                 {getPlayerName(player)}
                               </h4>

@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
 // TypeScript Interfaces
@@ -18,9 +19,14 @@ interface TeamRosterData {
 }
 
 export default function RegisterPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  // Use default tournament if not provided in URL
+  const tournamentId = searchParams.get("tournamentId") || "default-tournament";
+
   // Multi-step state
   const [currentStep, setCurrentStep] = useState<1 | 2>(1);
-  
+
   // Player data state
   const [playerData, setPlayerData] = useState<PlayerData>({
     fullName: "",
@@ -39,10 +45,10 @@ export default function RegisterPage() {
 
   // Additional player input for roster
   const [newPlayerName, setNewPlayerName] = useState("");
-  
+
   // Form validation errors
   const [errors, setErrors] = useState<Record<string, string>>({});
-  
+
   // Submission confirmation
   const [isSubmitted, setIsSubmitted] = useState(false);
 
@@ -103,17 +109,17 @@ export default function RegisterPage() {
   // Handle Step 1 submission
   const handlePlayerRegistration = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (validatePlayerData()) {
       // Simulate API call
       console.log("Player Registration Data:", playerData);
-      
+
       // Add registered player to roster automatically
       setTeamRosterData({
         ...teamRosterData,
         rosterPlayers: [playerData.fullName],
       });
-      
+
       // Move to Step 2
       setCurrentStep(2);
       setErrors({});
@@ -133,7 +139,9 @@ export default function RegisterPage() {
 
   // Handle removing a player from roster
   const handleRemovePlayer = (index: number) => {
-    const updatedRoster = teamRosterData.rosterPlayers.filter((_, i) => i !== index);
+    const updatedRoster = teamRosterData.rosterPlayers.filter(
+      (_, i) => i !== index
+    );
     setTeamRosterData({
       ...teamRosterData,
       rosterPlayers: updatedRoster,
@@ -141,18 +149,47 @@ export default function RegisterPage() {
   };
 
   // Handle Step 2 submission
-  const handleRosterSubmission = (e: React.FormEvent) => {
+  const handleRosterSubmission = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (validateTeamRoster()) {
-      // Simulate API call
-      console.log("Team Roster Submission Data:", {
-        playerData,
-        teamRosterData,
-      });
-      
-      // Show confirmation
-      setIsSubmitted(true);
+      setIsSubmitted(true); // Show loading state
+
+      try {
+        // Save player and team data to database
+        console.log("Team Roster Submission Data:", {
+          playerData,
+          teamRosterData,
+          tournamentId,
+        });
+
+        // Call API to create/register the team
+        const response = await fetch("/api/public/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            playerData,
+            teamRosterData,
+            tournamentId, // This is now guaranteed to have a value (default or from URL)
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to register team");
+        }
+
+        const result = await response.json();
+        const teamId = result.teamId; // Get the created team ID
+
+        // Redirect to roster submission page with both IDs
+        router.push(
+          `/public/register/roster-submit?tournamentId=${tournamentId}&teamId=${teamId}`
+        );
+      } catch (error) {
+        console.error("Registration error:", error);
+        setErrors({ submit: "Failed to register team. Please try again." });
+        setIsSubmitted(false);
+      }
     }
   };
 
@@ -194,24 +231,38 @@ export default function RegisterPage() {
               Your team registration has been submitted successfully
             </p>
           </div>
-          
+
           <div className="p-8 text-center">
             <div className="mb-6">
               <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
                 <h3 className="text-xl font-semibold text-gray-900 mb-3 flex items-center justify-center">
-                  <svg className="w-5 h-5 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                  <svg
+                    className="w-5 h-5 mr-2 text-blue-600"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+                    />
                   </svg>
                   {teamRosterData.joinExistingTeam || teamRosterData.teamName}
                 </h3>
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
                     <span className="text-gray-500">Team Size:</span>
-                    <p className="font-semibold text-gray-900">{teamRosterData.rosterPlayers.length} players</p>
+                    <p className="font-semibold text-gray-900">
+                      {teamRosterData.rosterPlayers.length} players
+                    </p>
                   </div>
                   <div>
                     <span className="text-gray-500">Status:</span>
-                    <p className="font-semibold text-yellow-600">Pending Approval</p>
+                    <p className="font-semibold text-yellow-600">
+                      Pending Approval
+                    </p>
                   </div>
                 </div>
               </div>
@@ -219,14 +270,27 @@ export default function RegisterPage() {
 
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
               <div className="flex items-start">
-                <svg className="w-5 h-5 text-blue-600 mt-0.5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <svg
+                  className="w-5 h-5 text-blue-600 mt-0.5 mr-3"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
                 </svg>
                 <div className="text-left">
-                  <h4 className="font-medium text-blue-900 mb-1">What is Next?</h4>
+                  <h4 className="font-medium text-blue-900 mb-1">
+                    What is Next?
+                  </h4>
                   <p className="text-sm text-blue-700">
-                    Your registration is now under review by the tournament director.
-                    You will receive an email confirmation once your team is approved.
+                    Your registration is now under review by the tournament
+                    director. You will receive an email confirmation once your
+                    team is approved.
                   </p>
                 </div>
               </div>
@@ -255,7 +319,7 @@ export default function RegisterPage() {
                 Register Another Player
               </Button>
               <Button
-                onClick={() => window.location.href = '/'}
+                onClick={() => (window.location.href = "/")}
                 variant="outline"
                 className="flex-1 bg-white border-gray-300 text-gray-700 hover:bg-gray-50 py-3 px-6 rounded-lg font-medium"
               >
@@ -273,8 +337,12 @@ export default function RegisterPage() {
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">Join Our Tournament</h1>
-          <p className="text-xl text-gray-600">Complete your registration in just 2 simple steps</p>
+          <h1 className="text-4xl font-bold text-gray-900 mb-2">
+            Join Our Tournament
+          </h1>
+          <p className="text-xl text-gray-600">
+            Complete your registration in just 2 simple steps
+          </p>
         </div>
 
         {/* Step Indicator */}
@@ -290,19 +358,25 @@ export default function RegisterPage() {
               >
                 {currentStep === 1 ? "1" : "✓"}
               </div>
-              <span className={`ml-4 font-semibold text-lg ${
-                currentStep === 1 ? "text-blue-600" : "text-green-600"
-              }`}>Player Information</span>
+              <span
+                className={`ml-4 font-semibold text-lg ${
+                  currentStep === 1 ? "text-blue-600" : "text-green-600"
+                }`}
+              >
+                Player Information
+              </span>
             </div>
-            
+
             <div className="w-24 h-1 mx-6 bg-gray-300 rounded-full overflow-hidden">
               <div
                 className={`h-full transition-all duration-500 rounded-full ${
-                  currentStep === 2 ? "bg-blue-600 w-full" : "bg-transparent w-0"
+                  currentStep === 2
+                    ? "bg-blue-600 w-full"
+                    : "bg-transparent w-0"
                 }`}
               />
             </div>
-            
+
             <div className="flex items-center">
               <div
                 className={`flex items-center justify-center w-12 h-12 rounded-full border-2 font-semibold text-lg transition-all duration-300 ${
@@ -334,18 +408,33 @@ export default function RegisterPage() {
           <div className="bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden">
             <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-8 py-6">
               <h2 className="text-2xl font-bold text-white flex items-center">
-                <svg className="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                <svg
+                  className="w-6 h-6 mr-3"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                  />
                 </svg>
                 Player Information
               </h2>
-              <p className="text-blue-100 mt-1">Tell us about yourself to get started</p>
+              <p className="text-blue-100 mt-1">
+                Tell us about yourself to get started
+              </p>
             </div>
-            
+
             <form onSubmit={handlePlayerRegistration} className="p-8 space-y-6">
               {/* Full Name */}
               <div className="space-y-2">
-                <label htmlFor="fullName" className="block text-sm font-semibold text-gray-700">
+                <label
+                  htmlFor="fullName"
+                  className="block text-sm font-semibold text-gray-700"
+                >
                   Full Name <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -360,8 +449,16 @@ export default function RegisterPage() {
                 />
                 {errors.fullName && (
                   <p className="text-sm text-red-600 flex items-center">
-                    <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    <svg
+                      className="w-4 h-4 mr-1"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                        clipRule="evenodd"
+                      />
                     </svg>
                     {errors.fullName}
                   </p>
@@ -370,13 +467,26 @@ export default function RegisterPage() {
 
               {/* Email */}
               <div className="space-y-2">
-                <label htmlFor="email" className="block text-sm font-semibold text-gray-700">
+                <label
+                  htmlFor="email"
+                  className="block text-sm font-semibold text-gray-700"
+                >
                   Email Address <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
+                    <svg
+                      className="h-5 w-5 text-gray-400"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207"
+                      />
                     </svg>
                   </div>
                   <input
@@ -392,8 +502,16 @@ export default function RegisterPage() {
                 </div>
                 {errors.email && (
                   <p className="text-sm text-red-600 flex items-center">
-                    <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    <svg
+                      className="w-4 h-4 mr-1"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                        clipRule="evenodd"
+                      />
                     </svg>
                     {errors.email}
                   </p>
@@ -402,13 +520,26 @@ export default function RegisterPage() {
 
               {/* Contact Number */}
               <div className="space-y-2">
-                <label htmlFor="contactNumber" className="block text-sm font-semibold text-gray-700">
+                <label
+                  htmlFor="contactNumber"
+                  className="block text-sm font-semibold text-gray-700"
+                >
                   Phone Number <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                    <svg
+                      className="h-5 w-5 text-gray-400"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                      />
                     </svg>
                   </div>
                   <input
@@ -416,7 +547,10 @@ export default function RegisterPage() {
                     id="contactNumber"
                     value={playerData.contactNumber}
                     onChange={(e) =>
-                      setPlayerData({ ...playerData, contactNumber: e.target.value })
+                      setPlayerData({
+                        ...playerData,
+                        contactNumber: e.target.value,
+                      })
                     }
                     className="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-gray-900 placeholder-gray-500 bg-white"
                     placeholder="+1 (555) 123-4567"
@@ -424,8 +558,16 @@ export default function RegisterPage() {
                 </div>
                 {errors.contactNumber && (
                   <p className="text-sm text-red-600 flex items-center">
-                    <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    <svg
+                      className="w-4 h-4 mr-1"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                        clipRule="evenodd"
+                      />
                     </svg>
                     {errors.contactNumber}
                   </p>
@@ -435,7 +577,10 @@ export default function RegisterPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Gender */}
                 <div className="space-y-2">
-                  <label htmlFor="gender" className="block text-sm font-semibold text-gray-700">
+                  <label
+                    htmlFor="gender"
+                    className="block text-sm font-semibold text-gray-700"
+                  >
                     Gender <span className="text-red-500">*</span>
                   </label>
                   <select
@@ -453,8 +598,16 @@ export default function RegisterPage() {
                   </select>
                   {errors.gender && (
                     <p className="text-sm text-red-600 flex items-center">
-                      <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                      <svg
+                        className="w-4 h-4 mr-1"
+                        fill="currentColor"
+                        viewBox="0 0 20 20"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                          clipRule="evenodd"
+                        />
                       </svg>
                       {errors.gender}
                     </p>
@@ -463,7 +616,10 @@ export default function RegisterPage() {
 
                 {/* Date of Birth */}
                 <div className="space-y-2">
-                  <label htmlFor="dateOfBirth" className="block text-sm font-semibold text-gray-700">
+                  <label
+                    htmlFor="dateOfBirth"
+                    className="block text-sm font-semibold text-gray-700"
+                  >
                     Date of Birth <span className="text-red-500">*</span>
                   </label>
                   <input
@@ -471,14 +627,25 @@ export default function RegisterPage() {
                     id="dateOfBirth"
                     value={playerData.dateOfBirth}
                     onChange={(e) =>
-                      setPlayerData({ ...playerData, dateOfBirth: e.target.value })
+                      setPlayerData({
+                        ...playerData,
+                        dateOfBirth: e.target.value,
+                      })
                     }
                     className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-gray-900 bg-white"
                   />
                   {errors.dateOfBirth && (
                     <p className="text-sm text-red-600 flex items-center">
-                      <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                      <svg
+                        className="w-4 h-4 mr-1"
+                        fill="currentColor"
+                        viewBox="0 0 20 20"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                          clipRule="evenodd"
+                        />
                       </svg>
                       {errors.dateOfBirth}
                     </p>
@@ -492,8 +659,18 @@ export default function RegisterPage() {
                   className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-6 rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl flex items-center justify-center"
                 >
                   Continue to Team Registration
-                  <svg className="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                  <svg
+                    className="w-5 h-5 ml-2"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M13 7l5 5m0 0l-5 5m5-5H6"
+                    />
                   </svg>
                 </Button>
               </div>
@@ -506,12 +683,24 @@ export default function RegisterPage() {
           <div className="bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden">
             <div className="bg-gradient-to-r from-green-600 to-green-700 px-8 py-6">
               <h2 className="text-2xl font-bold text-white flex items-center">
-                <svg className="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                <svg
+                  className="w-6 h-6 mr-3"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+                  />
                 </svg>
                 Team Registration
               </h2>
-              <p className="text-green-100 mt-1">Create or join a team and build your roster</p>
+              <p className="text-green-100 mt-1">
+                Create or join a team and build your roster
+              </p>
             </div>
 
             <form onSubmit={handleRosterSubmission} className="p-8 space-y-8">
@@ -523,7 +712,10 @@ export default function RegisterPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Create New Team */}
                   <div className="space-y-2">
-                    <label htmlFor="teamName" className="block text-sm font-semibold text-gray-700">
+                    <label
+                      htmlFor="teamName"
+                      className="block text-sm font-semibold text-gray-700"
+                    >
                       Create New Team
                     </label>
                     <div className="relative">
@@ -544,8 +736,16 @@ export default function RegisterPage() {
                       />
                       {teamRosterData.teamName && (
                         <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
-                          <svg className="h-5 w-5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                          <svg
+                            className="h-5 w-5 text-green-500"
+                            fill="currentColor"
+                            viewBox="0 0 20 20"
+                          >
+                            <path
+                              fillRule="evenodd"
+                              d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                              clipRule="evenodd"
+                            />
                           </svg>
                         </div>
                       )}
@@ -554,7 +754,10 @@ export default function RegisterPage() {
 
                   {/* Join Existing Team */}
                   <div className="space-y-2">
-                    <label htmlFor="existingTeam" className="block text-sm font-semibold text-gray-700">
+                    <label
+                      htmlFor="existingTeam"
+                      className="block text-sm font-semibold text-gray-700"
+                    >
                       Or Join Existing Team
                     </label>
                     <select
@@ -573,11 +776,19 @@ export default function RegisterPage() {
                     </select>
                   </div>
                 </div>
-                
+
                 <div className="flex items-center justify-center">
                   <div className="flex items-center px-4 py-2 bg-blue-50 text-blue-700 rounded-lg text-sm">
-                    <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                    <svg
+                      className="w-4 h-4 mr-2"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
+                        clipRule="evenodd"
+                      />
                     </svg>
                     Choose one option: create a new team or join an existing one
                   </div>
@@ -585,8 +796,16 @@ export default function RegisterPage() {
 
                 {errors.team && (
                   <p className="text-sm text-red-600 flex items-center justify-center bg-red-50 p-3 rounded-lg">
-                    <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    <svg
+                      className="w-4 h-4 mr-1"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                        clipRule="evenodd"
+                      />
                     </svg>
                     {errors.team}
                   </p>
@@ -598,26 +817,38 @@ export default function RegisterPage() {
                 <h3 className="text-lg font-semibold text-gray-900 border-b border-gray-200 pb-2">
                   Team Roster Builder
                 </h3>
-                
+
                 <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border border-blue-200">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center">
-                      <svg className="w-5 h-5 text-blue-600 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                      <svg
+                        className="w-5 h-5 text-blue-600 mr-2"
+                        fill="currentColor"
+                        viewBox="0 0 20 20"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
+                          clipRule="evenodd"
+                        />
                       </svg>
-                      <span className="text-sm font-medium text-blue-900">Roster Requirements</span>
+                      <span className="text-sm font-medium text-blue-900">
+                        Roster Requirements
+                      </span>
                     </div>
-                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                      teamRosterData.rosterPlayers.length >= 5 && teamRosterData.rosterPlayers.length <= 10
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-yellow-100 text-yellow-800'
-                    }`}>
+                    <span
+                      className={`px-3 py-1 rounded-full text-sm font-medium ${
+                        teamRosterData.rosterPlayers.length >= 5 &&
+                        teamRosterData.rosterPlayers.length <= 10
+                          ? "bg-green-100 text-green-800"
+                          : "bg-yellow-100 text-yellow-800"
+                      }`}
+                    >
                       {teamRosterData.rosterPlayers.length} / 10 players
                     </span>
                   </div>
                   <p className="text-sm text-blue-700">
-                    • Minimum: 5 players required
-                    • Maximum: 10 players allowed
+                    • Minimum: 5 players required • Maximum: 10 players allowed
                     • You are automatically added as the first team member
                   </p>
                 </div>
@@ -625,18 +856,40 @@ export default function RegisterPage() {
                 {/* Current Roster */}
                 <div className="space-y-3">
                   <h4 className="font-medium text-gray-900 flex items-center">
-                    <svg className="w-5 h-5 mr-2 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                    <svg
+                      className="w-5 h-5 mr-2 text-gray-600"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+                      />
                     </svg>
                     Current Team Members
                   </h4>
-                  
+
                   {teamRosterData.rosterPlayers.length === 0 ? (
                     <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-                      <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                      <svg
+                        className="mx-auto h-12 w-12 text-gray-400"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+                        />
                       </svg>
-                      <p className="mt-2 text-sm text-gray-500">No team members added yet</p>
+                      <p className="mt-2 text-sm text-gray-500">
+                        No team members added yet
+                      </p>
                     </div>
                   ) : (
                     <div className="space-y-2">
@@ -651,11 +904,21 @@ export default function RegisterPage() {
                                 {index + 1}
                               </span>
                             </div>
-                            <span className="ml-3 text-gray-900 font-medium">{player}</span>
+                            <span className="ml-3 text-gray-900 font-medium">
+                              {player}
+                            </span>
                             {index === 0 && (
                               <span className="ml-3 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                <svg
+                                  className="w-3 h-3 mr-1"
+                                  fill="currentColor"
+                                  viewBox="0 0 20 20"
+                                >
+                                  <path
+                                    fillRule="evenodd"
+                                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                                    clipRule="evenodd"
+                                  />
                                 </svg>
                                 You
                               </span>
@@ -667,8 +930,18 @@ export default function RegisterPage() {
                               onClick={() => handleRemovePlayer(index)}
                               className="text-red-600 hover:text-red-800 text-sm font-medium flex items-center"
                             >
-                              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              <svg
+                                className="w-4 h-4 mr-1"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                />
                               </svg>
                               Remove
                             </button>
@@ -705,8 +978,18 @@ export default function RegisterPage() {
                         disabled={!newPlayerName.trim()}
                         className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-medium flex items-center"
                       >
-                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                        <svg
+                          className="w-4 h-4 mr-2"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+                          />
                         </svg>
                         Add Player
                       </Button>
@@ -716,8 +999,16 @@ export default function RegisterPage() {
 
                 {errors.roster && (
                   <p className="text-sm text-red-600 flex items-center bg-red-50 p-3 rounded-lg">
-                    <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    <svg
+                      className="w-4 h-4 mr-2"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                        clipRule="evenodd"
+                      />
                     </svg>
                     {errors.roster}
                   </p>
@@ -732,8 +1023,18 @@ export default function RegisterPage() {
                   variant="outline"
                   className="flex-1 bg-white border-gray-300 text-gray-700 hover:bg-gray-50 py-3 px-6 rounded-lg font-medium flex items-center justify-center"
                 >
-                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16l-4-4m0 0l4-4m-4 4h18" />
+                  <svg
+                    className="w-4 h-4 mr-2"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M7 16l-4-4m0 0l4-4m-4 4h18"
+                    />
                   </svg>
                   Back to Player Info
                 </Button>
@@ -741,8 +1042,18 @@ export default function RegisterPage() {
                   type="submit"
                   className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold py-4 px-6 rounded-lg shadow-lg hover:shadow-xl transition-all duration-200 flex items-center justify-center"
                 >
-                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <svg
+                    className="w-5 h-5 mr-2"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
                   </svg>
                   Submit Team Registration
                 </Button>

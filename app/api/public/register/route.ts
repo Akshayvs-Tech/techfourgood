@@ -1,44 +1,112 @@
 // Save this file at: app/api/public/register/route.ts
 
 import { NextResponse } from "next/server";
+
+// Mock implementation for development
+// TODO: Replace with actual database implementation when ready
+export async function POST(request: Request) {
+  try {
+    // Parse the incoming request body
+    const body = await request.json();
+    const { tournamentId, playerData, teamRosterData } = body;
+
+    // Validate essential data
+    if (!tournamentId || !playerData || !teamRosterData) {
+      return NextResponse.json(
+        { message: "Missing required registration data." },
+        { status: 400 }
+      );
+    }
+
+    // Validate player data
+    if (!playerData.fullName || !playerData.email) {
+      return NextResponse.json(
+        { message: "Player name and email are required." },
+        { status: 400 }
+      );
+    }
+
+    // Validate team data
+    const teamName = teamRosterData.teamName || teamRosterData.joinExistingTeam;
+    if (!teamName) {
+      return NextResponse.json(
+        { message: "Team name is required." },
+        { status: 400 }
+      );
+    }
+
+    // Mock: Generate a unique team ID
+    // TODO: Replace with actual database insertion
+    const mockTeamId = `team-${Date.now()}-${Math.random()
+      .toString(36)
+      .substr(2, 9)}`;
+
+    console.log("✅ Team Registration (Mock):", {
+      teamId: mockTeamId,
+      teamName,
+      tournamentId,
+      captain: {
+        name: playerData.fullName,
+        email: playerData.email,
+        contact: playerData.contactNumber,
+        gender: playerData.gender,
+        dob: playerData.dateOfBirth,
+      },
+      rosterCount: teamRosterData.rosterPlayers?.length || 0,
+      status: "Pending Approval",
+    });
+
+    // Send a success response
+    return NextResponse.json(
+      {
+        message: "Registration successful",
+        teamId: mockTeamId,
+        teamName,
+        status: "Pending Approval",
+      },
+      { status: 201 }
+    );
+  } catch (error) {
+    console.error("Registration API Error:", error);
+    return NextResponse.json(
+      { message: "Registration failed: " + (error as Error).message },
+      { status: 500 }
+    );
+  }
+}
+
+// Database implementation (commented out for now)
+/*
 import { Pool } from "pg";
 
-// 1. Initialize the database connection pool
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
 });
 
-// 2. Define the handler for POST requests
 export async function POST(request: Request) {
-  // Get a single connection client from the pool
   const client = await pool.connect();
 
   try {
-    // 3. Parse the incoming request body
     const body = await request.json();
-    const { tournamentSlug, playerData, teamRosterData } = body;
+    const { tournamentId, playerData, teamRosterData } = body;
 
-    // 4. Validate essential data
-    if (!tournamentSlug || !playerData || !teamRosterData) {
+    if (!tournamentId || !playerData || !teamRosterData) {
       throw new Error("Missing required registration data.");
     }
 
-    // 5. Start a database transaction
-    // This groups all our queries into a single "all or nothing" operation
     await client.query("BEGIN");
 
-    // 6. Find the tournament's primary key (id) from its public slug
+    // Verify tournament exists
     const tournamentRes = await client.query(
-      "SELECT id FROM tournaments WHERE slug = $1",
-      [tournamentSlug]
+      "SELECT id FROM tournaments WHERE id = $1",
+      [tournamentId]
     );
 
     if (tournamentRes.rows.length === 0) {
-      throw new Error(`Tournament with ID '${tournamentSlug}' not found.`);
+      throw new Error(`Tournament with ID '${tournamentId}' not found.`);
     }
-    const tournamentId = tournamentRes.rows[0].id;
 
-    // 7. Create the new team
+    // Create the new team
     const teamName = teamRosterData.teamName || teamRosterData.joinExistingTeam;
     
     const teamRes = await client.query(
@@ -49,7 +117,7 @@ export async function POST(request: Request) {
     );
     const newTeamId = teamRes.rows[0].id;
 
-    // 8. Create the captain (Player from Step 1)
+    // Create the captain (Player from Step 1)
     await client.query(
       `INSERT INTO players 
          (team_id, full_name, email, contact_number, gender, date_of_birth, is_captain) 
@@ -64,13 +132,11 @@ export async function POST(request: Request) {
       ]
     );
 
-    // 9. Create the other players (from the roster list)
-    // We skip index 0, because that is the captain (playerData.fullName)
+    // Create the other players (from the roster list)
     const otherPlayers = teamRosterData.rosterPlayers.slice(1);
 
-    // Loop and insert each remaining player
     for (const playerName of otherPlayers) {
-      if (playerName.trim() !== "") { // Ensure no empty names are added
+      if (playerName.trim() !== "") {
         await client.query(
           `INSERT INTO players (team_id, full_name, is_captain) 
            VALUES ($1, $2, false)`,
@@ -79,26 +145,23 @@ export async function POST(request: Request) {
       }
     }
 
-    // 10. If all queries succeeded, commit the transaction
     await client.query("COMMIT");
 
-    // 11. Send a success response
     return NextResponse.json(
       { message: "Registration successful", teamId: newTeamId },
-      { status: 201 } // 201 means "Created"
+      { status: 201 }
     );
 
   } catch (error) {
-    // 12. If any query failed, roll back the entire transaction
     await client.query("ROLLBACK");
     
     console.error("Registration API Error:", error);
     return NextResponse.json(
       { message: "Registration failed: " + (error as Error).message },
-      { status: 500 } // 500 means "Internal Server Error"
+      { status: 500 }
     );
   } finally {
-    // 13. ALWAYS release the client back to the pool
     client.release();
   }
 }
+*/
