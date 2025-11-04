@@ -57,7 +57,7 @@ export default function AdminDashboardPage() {
   const searchParams = useSearchParams();
   const tournamentId = searchParams.get("tournamentId");
 
-  const [activeTab, setActiveTab] = useState<"tournaments" | "admins" | "coaches">("tournaments");
+  const [activeTab, setActiveTab] = useState<"tournaments" | "admins" | "coaches" | "programManagers" | "coaching">("tournaments");
   const [upcoming, setUpcoming] = useState<any[]>([]);
   const [past, setPast] = useState<any[]>([]);
   const [admins, setAdmins] = useState<{ id: string; full_name: string; email: string; phone?: string | null; role: string }[]>([]);
@@ -68,6 +68,15 @@ export default function AdminDashboardPage() {
   const [coachForm, setCoachForm] = useState({ fullName: "", email: "", phone: "", password: "" });
   const [coachSaving, setCoachSaving] = useState(false);
   const [coachError, setCoachError] = useState<string | null>(null);
+  const [programManagers, setProgramManagers] = useState<{ id: string; full_name: string; email: string; phone?: string | null }[]>([]);
+  const [pmForm, setPmForm] = useState({ fullName: "", email: "", phone: "", password: "" });
+  const [pmSaving, setPmSaving] = useState(false);
+  const [pmError, setPmError] = useState<string | null>(null);
+  const [programs, setPrograms] = useState<{ id: string; name: string }[]>([]);
+  const [selectedProgramId, setSelectedProgramId] = useState<string>("");
+  const [upcomingSessions, setUpcomingSessions] = useState<{ id: string; program_id: string; date: string; location: string; type: string }[]>([]);
+  const [pastSessions, setPastSessions] = useState<{ id: string; program_id: string; date: string; location: string; type: string }[]>([]);
+  const [analytics, setAnalytics] = useState<{ programName?: string; totalPlayers?: number; totalSessions?: number; overallAttendanceRate?: number; overallAverageScore?: number } | null>(null);
 
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -141,10 +150,51 @@ export default function AdminDashboardPage() {
         }
       };
       
+      const loadPrograms = async () => {
+        const { data, error } = await supabase
+          .from("programs")
+          .select("id,name")
+          .order("name");
+        if (error) {
+          console.error("Error loading programs:", error);
+        } else {
+          setPrograms((data as any) || []);
+        }
+      };
+
+      const loadProgramManagers = async () => {
+        try {
+          const res = await fetch("/api/admin/program-managers");
+          if (!res.ok) throw new Error("Failed to load program managers");
+          const j = await res.json();
+          setProgramManagers(j.programManagers || []);
+        } catch (e) {
+          console.error(e);
+        }
+      };
+
+      const loadSessions = async () => {
+        const nowIso = new Date().toISOString();
+        const { data, error } = await supabase
+          .from("sessions")
+          .select("id, program_id, date, location, type")
+          .order("date", { ascending: true });
+        if (error) {
+          console.error("Error loading sessions:", error);
+          return;
+        }
+        const all = (data as any) || [];
+        setUpcomingSessions(all.filter((s: any) => s.date >= nowIso));
+        setPastSessions(all.filter((s: any) => s.date < nowIso).reverse());
+      };
+
       await Promise.all([
         loadTournaments(),
         loadAdmins(),
-        loadCoaches()
+        loadCoaches(),
+        loadPrograms(),
+        loadSessions(),
+        loadProgramManagers(),
       ]);
     };
     
@@ -156,44 +206,79 @@ export default function AdminDashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tournamentId]);
 
+  // Load coaching analytics when a program is selected
+  useEffect(() => {
+    const fetchAnalytics = async () => {
+      if (!selectedProgramId) {
+        setAnalytics(null);
+        return;
+      }
+      try {
+        const res = await fetch(`/api/admin/coaching/analytics?programId=${selectedProgramId}`);
+        if (!res.ok) throw new Error("Failed to load analytics");
+        const data = await res.json();
+        setAnalytics({
+          programName: data.programName,
+          totalPlayers: data.totalPlayers,
+          totalSessions: data.totalSessions,
+          overallAttendanceRate: data.overallAttendanceRate,
+          overallAverageScore: data.overallAverageScore,
+        });
+      } catch (e) {
+        // Silent fail; keep UI usable
+        setAnalytics(null);
+      }
+    };
+    fetchAnalytics();
+  }, [selectedProgramId]);
+
   const fetchTournamentDetails = async () => {
     setIsLoading(true);
     setError(null);
-
     try {
-      // TODO: Replace with actual API call
-      const response = await fetch(`/api/admin/tournament/${tournamentId}`);
+      // Load tournament and live stats directly via Supabase
+      const { data: t, error: tErr } = await supabase
+        .from('tournaments')
+        .select('id,name,start_date,end_date,venue,max_teams,registration_deadline,status')
+        .eq('id', tournamentId)
+        .maybeSingle();
+      if (tErr || !t) throw tErr || new Error('Not found');
 
-      if (!response.ok) {
-        throw new Error("Failed to fetch tournament details");
-      }
+      const { count: teamsRegistered } = await supabase
+        .from('teams')
+        .select('id', { count: 'exact', head: true })
+        .eq('tournament_id', tournamentId);
+      const { count: teamsApproved } = await supabase
+        .from('teams')
+        .select('id', { count: 'exact', head: true })
+        .eq('tournament_id', tournamentId)
+        .ilike('status', 'approved%');
+      const teamsPending = Math.max((teamsRegistered || 0) - (teamsApproved || 0), 0);
+      const { count: matchesScheduled } = await supabase
+        .from('matches')
+        .select('id', { count: 'exact', head: true })
+        .eq('tournament_id', tournamentId);
 
-      const data = await response.json();
-      setTournament(data);
-    } catch (err) {
-      console.error("Error fetching tournament:", err);
-
-      // Mock tournament data for testing
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      const mockTournament: Tournament = {
-        id: tournamentId!,
-        name: "Summer Ultimate Championship 2024",
-        startDate: "2024-12-01",
-        endDate: "2024-12-07",
-        venue: "Central Sports Complex",
-        maxTeams: 16,
-        registrationDeadline: "2024-11-25",
-        status: "registration-open",
+      const mapped: Tournament = {
+        id: t.id,
+        name: t.name,
+        startDate: t.start_date,
+        endDate: t.end_date,
+        venue: t.venue,
+        maxTeams: t.max_teams || 0,
+        registrationDeadline: t.registration_deadline,
+        status: (String(t.status || 'draft').toLowerCase() as any),
         spiritConfigured: true,
-        teamsRegistered: 8,
-        teamsApproved: 5,
-        teamsPending: 3,
-        matchesScheduled: 24,
-        totalMatches: 48,
+        teamsRegistered: teamsRegistered || 0,
+        teamsApproved: teamsApproved || 0,
+        teamsPending,
+        matchesScheduled: matchesScheduled || 0,
+        totalMatches: matchesScheduled || 0,
       };
-
-      setTournament(mockTournament);
+      setTournament(mapped);
+    } catch (err) {
+      console.error('Error fetching tournament:', err);
+      setError('Failed to load tournament');
     } finally {
       setIsLoading(false);
     }
@@ -246,7 +331,7 @@ export default function AdminDashboardPage() {
       description: "Review and approve team registrations",
       status:
         tournament && tournament.teamsPending > 0 ? "pending" : "completed",
-      path: `/admin/reports/dashboard?tournamentId=${tournamentId}`,
+      path: `/admin/registration/roster-review?tournamentId=${tournamentId}`,
       icon: Users,
     },
     {
@@ -274,7 +359,7 @@ export default function AdminDashboardPage() {
       title: "View Schedule",
       description: "View published tournament schedule",
       icon: Calendar,
-      path: `/admin/scheduling/calendar?tournamentId=${tournamentId}`,
+      path: `/public/schedule?tournamentId=${tournamentId}`,
       enabled: tournament && tournament.matchesScheduled > 0,
     },
     {
@@ -353,20 +438,48 @@ export default function AdminDashboardPage() {
     if (!error) setCoaches((data as any) || []);
   };
 
+  const addProgramManager = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPmSaving(true);
+    setPmError(null);
+    const res = await fetch("/api/admin/program-managers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fullName: pmForm.fullName,
+        email: pmForm.email,
+        phone: pmForm.phone || null,
+        password: pmForm.password,
+      }),
+    });
+    setPmSaving(false);
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      setPmError(j.message || "Failed to add program manager");
+      return;
+    }
+    setPmForm({ fullName: "", email: "", phone: "", password: "" });
+    try {
+      const list = await fetch("/api/admin/program-managers");
+      const j = await list.json();
+      setProgramManagers(j.programManagers || []);
+    } catch {}
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
-        {/* Page Header */}
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-            Admin Dashboard
-          </h1>
-          <p className="text-gray-600 dark:text-gray-300">
-            {tournamentId 
-              ? "Manage your tournament setup and monitor progress"
-              : "Manage tournaments, admins, and coaches"}
-          </p>
-        </div>
+        {/* Page Header - hidden when viewing a specific tournament */}
+        {!tournamentId && (
+          <div className="mb-6">
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
+              Admin Dashboard
+            </h1>
+            <p className="text-gray-600 dark:text-gray-300">
+              Manage tournaments, admins, and coaches
+            </p>
+          </div>
+        )}
 
         {/* Error Message */}
         {error && (
@@ -387,7 +500,8 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
-        {/* Tabs */}
+        {/* Tabs - hidden when viewing a specific tournament */}
+        {!tournamentId && (
         <div className="mb-6 flex gap-2">
           <button
             className={`px-4 py-2 rounded-md border ${activeTab === "tournaments" ? "bg-blue-600 text-white border-blue-600" : "bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 border-gray-300 dark:border-gray-700"}`}
@@ -407,9 +521,22 @@ export default function AdminDashboardPage() {
           >
             Coaches
           </button>
+          <button
+            className={`px-4 py-2 rounded-md border ${activeTab === "programManagers" ? "bg-blue-600 text-white border-blue-600" : "bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 border-gray-300 dark:border-gray-700"}`}
+            onClick={() => setActiveTab("programManagers")}
+          >
+            Program Managers
+          </button>
+          <button
+            className={`px-4 py-2 rounded-md border ${activeTab === "coaching" ? "bg-blue-600 text-white border-blue-600" : "bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 border-gray-300 dark:border-gray-700"}`}
+            onClick={() => setActiveTab("coaching")}
+          >
+            Coaching Sessions
+          </button>
         </div>
+        )}
 
-        {activeTab === "tournaments" && (
+        {!tournamentId && activeTab === "tournaments" && (
         /* Centralized Dashboard: Tournaments list */
         <div className="mb-8">
           <div className="mb-4 flex justify-end">
@@ -483,7 +610,77 @@ export default function AdminDashboardPage() {
         </div>
         )}
 
-        {activeTab === "admins" && (
+        {!tournamentId && activeTab === "programManagers" && (
+          <div className="space-y-6 mb-8">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Add Program Manager</h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Program Managers can create matches and update live scores for assigned tournaments.
+              </p>
+              <form onSubmit={addProgramManager} className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                <input
+                  className="border rounded-md px-3 py-2"
+                  placeholder="Full name"
+                  value={pmForm.fullName}
+                  onChange={(e) => setPmForm((f) => ({ ...f, fullName: e.target.value }))}
+                  required
+                />
+                <input
+                  type="email"
+                  className="border rounded-md px-3 py-2"
+                  placeholder="Email"
+                  value={pmForm.email}
+                  onChange={(e) => setPmForm((f) => ({ ...f, email: e.target.value }))}
+                  required
+                />
+                <input
+                  type="password"
+                  className="border rounded-md px-3 py-2"
+                  placeholder="Password (required)"
+                  value={pmForm.password}
+                  onChange={(e) => setPmForm((f) => ({ ...f, password: e.target.value }))}
+                  required
+                />
+                <input
+                  className="border rounded-md px-3 py-2"
+                  placeholder="Phone (optional)"
+                  value={pmForm.phone}
+                  onChange={(e) => setPmForm((f) => ({ ...f, phone: e.target.value }))}
+                />
+                <button type="submit" disabled={pmSaving} className="px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700">
+                  {pmSaving ? "Adding..." : "Add Program Manager"}
+                </button>
+              </form>
+              {pmError && <p className="text-sm text-red-600 mt-2">{pmError}</p>}
+            </div>
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden">
+              {programManagers.length === 0 ? (
+                <p className="p-4 text-gray-600">No program managers yet.</p>
+              ) : (
+                <table className="w-full">
+                  <thead>
+                    <tr className="text-left text-sm text-gray-600 border-b">
+                      <th className="p-3">Name</th>
+                      <th className="p-3">Email</th>
+                      <th className="p-3">Phone</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {programManagers.map((p) => (
+                      <tr key={p.id} className="border-b last:border-0">
+                        <td className="p-3">{p.full_name}</td>
+                        <td className="p-3">{p.email}</td>
+                        <td className="p-3">{p.phone || "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )}
+
+        {!tournamentId && activeTab === "admins" && (
           <div className="space-y-6 mb-8">
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Add Admin</h2>
@@ -559,7 +756,158 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
-        {activeTab === "coaches" && (
+        {!tournamentId && activeTab === "coaching" && (
+          <div className="space-y-6 mb-8">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+              <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+                <div className="flex-1">
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Coaching Sessions</h2>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">View upcoming and past sessions. Create and manage programs and sessions.</p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => supabase.auth.getUser().then(() => window.location.assign("/admin/coaching-management/program-setup/create-program"))}
+                    className="px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700"
+                  >
+                    + Create Program
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Select Program (for managing sessions)</label>
+                  <select
+                    className="w-full border rounded-md px-3 py-2 bg-white dark:bg-gray-900"
+                    value={selectedProgramId}
+                    onChange={(e) => setSelectedProgramId(e.target.value)}
+                  >
+                    <option value="">— Choose a program —</option>
+                    {programs.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex gap-2 items-end">
+                  <button
+                    disabled={!selectedProgramId}
+                    onClick={() => selectedProgramId && window.location.assign(`/admin/coaching-management/program-setup/manage-roles?programId=${selectedProgramId}`)}
+                    className={`px-4 py-2 rounded-md border ${selectedProgramId ? "bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700" : "opacity-50 cursor-not-allowed"}`}
+                  >
+                    Manage Roles
+                  </button>
+                  <button
+                    disabled={!selectedProgramId}
+                    onClick={() => selectedProgramId && window.location.assign(`/admin/coaching-management/training/session-scheduler?programId=${selectedProgramId}`)}
+                    className={`px-4 py-2 rounded-md ${selectedProgramId ? "bg-blue-600 text-white hover:bg-blue-700" : "bg-blue-600/50 text-white cursor-not-allowed"}`}
+                  >
+                    Open Scheduler
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {selectedProgramId && (
+                <div className="md:col-span-2 grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border">
+                    <p className="text-xs text-gray-500">Players</p>
+                    <p className="text-2xl font-semibold">{analytics?.totalPlayers ?? '-'}</p>
+                  </div>
+                  <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border">
+                    <p className="text-xs text-gray-500">Sessions</p>
+                    <p className="text-2xl font-semibold">{analytics?.totalSessions ?? '-'}</p>
+                  </div>
+                  <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border">
+                    <p className="text-xs text-gray-500">Avg Attendance</p>
+                    <p className="text-2xl font-semibold">{analytics?.overallAttendanceRate != null ? `${Math.round(analytics.overallAttendanceRate*100)}%` : '-'}</p>
+                  </div>
+                  <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border">
+                    <p className="text-xs text-gray-500">Avg Score</p>
+                    <p className="text-2xl font-semibold">{analytics?.overallAverageScore != null ? analytics.overallAverageScore.toFixed(1) : '-'}</p>
+                  </div>
+                </div>
+              )}
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+                <h3 className="text-md font-semibold text-gray-900 dark:text-white mb-4">Upcoming Sessions</h3>
+                <div className="space-y-3">
+                  {upcomingSessions.length === 0 && (
+                    <p className="text-sm text-gray-500">No upcoming sessions.</p>
+                  )}
+                  {upcomingSessions.map((s) => (
+                    <div key={s.id} className="flex items-center justify-between border rounded-md p-3">
+                      <div>
+                        <div className="font-medium text-gray-900 dark:text-white">{new Date(s.date).toLocaleString()}</div>
+                        <div className="text-xs text-gray-500">{s.location} • {s.type}</div>
+                        <div className="text-xs text-gray-500">{programs.find((p) => p.id === s.program_id)?.name || "Program"}</div>
+                      </div>
+                      <button
+                        className="px-3 py-1 text-sm border rounded-md"
+                        onClick={() => window.location.assign(`/admin/coaching-management/training/manage-attendance?programId=${s.program_id}`)}
+                      >
+                        Attendance
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+                <h3 className="text-md font-semibold text-gray-900 dark:text-white mb-4">Past Sessions</h3>
+                <div className="space-y-3">
+                  {pastSessions.length === 0 && (
+                    <p className="text-sm text-gray-500">No past sessions.</p>
+                  )}
+                  {pastSessions.map((s) => (
+                    <div key={s.id} className="flex items-center justify-between border rounded-md p-3">
+                      <div>
+                        <div className="font-medium text-gray-900 dark:text-white">{new Date(s.date).toLocaleString()}</div>
+                        <div className="text-xs text-gray-500">{s.location} • {s.type}</div>
+                        <div className="text-xs text-gray-500">{programs.find((p) => p.id === s.program_id)?.name || "Program"}</div>
+                      </div>
+                      <button
+                        className="px-3 py-1 text-sm border rounded-md"
+                        onClick={() => window.location.assign(`/admin/coaching-management/training/manage-attendance?programId=${s.program_id}`)}
+                      >
+                        Attendance
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Coaching Analytics & Player Development */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+              <h3 className="text-md font-semibold text-gray-900 dark:text-white mb-4">Player Development & Analytics</h3>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  disabled={!selectedProgramId}
+                  onClick={() => selectedProgramId && window.location.assign(`/admin/coaching-management/player-development/skill-assessment?programId=${selectedProgramId}`)}
+                  className={`px-4 py-2 rounded-md border ${selectedProgramId ? "bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700" : "opacity-50 cursor-not-allowed"}`}
+                >
+                  Skill Assessment
+                </button>
+                <button
+                  disabled={!selectedProgramId}
+                  onClick={() => selectedProgramId && window.location.assign(`/admin/coaching-management/player-development/feedback?programId=${selectedProgramId}`)}
+                  className={`px-4 py-2 rounded-md border ${selectedProgramId ? "bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700" : "opacity-50 cursor-not-allowed"}`}
+                >
+                  Feedback History
+                </button>
+                <button
+                  disabled={!selectedProgramId}
+                  onClick={() => selectedProgramId && window.location.assign(`/admin/coaching-management/analytics/performance-dashboard?programId=${selectedProgramId}`)}
+                  className={`px-4 py-2 rounded-md ${selectedProgramId ? "bg-blue-600 text-white hover:bg-blue-700" : "bg-blue-600/50 text-white cursor-not-allowed"}`}
+                >
+                  Performance Dashboard
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!tournamentId && activeTab === "coaches" && (
           <div className="space-y-6 mb-8">
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Add Coach</h2>
@@ -685,7 +1033,7 @@ export default function AdminDashboardPage() {
                     : "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300"
                 }`}
               >
-                {tournament?.status.replace("-", " ").toUpperCase()}
+                {(tournament?.status?.replace?.("-", " ")?.toUpperCase?.()) || ""}
               </span>
             </div>
           </div>

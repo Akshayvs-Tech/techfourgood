@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServiceSupabase } from "@/lib/supabaseClient";
 
 export async function POST(request: NextRequest) {
   try {
@@ -35,16 +36,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // TODO: Save to database
-    console.log("Registration forms saved:", formData);
+    const db = getServiceSupabase();
+    const { error } = await db
+      .from("registration_forms")
+      .upsert({
+        tournament_id: formData.tournamentId,
+        player_fields: formData.fields,
+      }, { onConflict: "tournament_id" });
+    if (error) throw error;
 
-    return NextResponse.json(
-      {
-        message: "Registration forms saved successfully",
-        forms: formData,
-      },
-      { status: 201 }
-    );
+    return NextResponse.json({ message: "Registration forms saved successfully" }, { status: 201 });
   } catch (error) {
     console.error("Error saving registration forms:", error);
     return NextResponse.json(
@@ -66,29 +67,14 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // TODO: Fetch from database
-    // For now, return mock data
-    const forms = {
-      tournamentId,
-      fields: [
-        {
-          id: "1",
-          label: "Full Name",
-          fieldType: "text",
-          options: [],
-          isRequired: true,
-        },
-        {
-          id: "2",
-          label: "Email",
-          fieldType: "email",
-          options: [],
-          isRequired: true,
-        },
-      ],
-    };
-
-    return NextResponse.json({ forms }, { status: 200 });
+    const db = getServiceSupabase();
+    const { data, error } = await db
+      .from("registration_forms")
+      .select("player_fields")
+      .eq("tournament_id", tournamentId)
+      .maybeSingle();
+    if (error) throw error;
+    return NextResponse.json({ forms: { tournamentId, fields: data?.player_fields || [] } }, { status: 200 });
   } catch (error) {
     console.error("Error fetching registration forms:", error);
     return NextResponse.json(

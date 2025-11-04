@@ -34,6 +34,7 @@ interface ProgramRole {
 interface Player {
   id: string;
   name: string;
+  affiliations?: { teamName: string; tournamentName: string }[];
 }
 
 // 2. Main Component Logic
@@ -57,12 +58,16 @@ function ManageRolesPage() {
   const [searchResults, setSearchResults] = useState<Player[]>([]);
   const [isSearching, startSearchTransition] = useTransition();
   const [rosterError, setRosterError] = useState<string | null>(null);
+  const [selectedToAdd, setSelectedToAdd] = useState<Record<string, boolean>>({});
 
   // General Page State
   const [programName, setProgramName] = useState("Loading...");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Coach Assignment (Program-level)
+  const [coaches, setCoaches] = useState<{ id: string; full_name: string; email: string }[]>([]);
+  const [selectedCoachIds, setSelectedCoachIds] = useState<Record<string, boolean>>({});
 
   // 3. Main Data Fetch (Program Details + Roster)
   const fetchProgramData = async () => {
@@ -112,6 +117,22 @@ function ManageRolesPage() {
     fetchProgramData();
   }, [programId]);
 
+  // Load coaches (global) for assignment
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const cRes = await fetch(`/api/admin/coaches`);
+        if (cRes.ok) {
+          const j = await cRes.json();
+          setCoaches(j.coaches || []);
+        }
+      } catch (e) {
+        // non-fatal
+      }
+    };
+    load();
+  }, [programId]);
+
   // 4. Handlers for Roles
   const handleAddRole = () => {
     if (newRoleName.trim() === "") return;
@@ -137,8 +158,7 @@ function ManageRolesPage() {
 
     startSearchTransition(async () => {
       try {
-        // --- THIS API (players) DOES NOT EXIST YET ---
-        const response = await fetch(`/api/players?search=${searchQuery}`);
+        const response = await fetch(`/api/admin/coaching/players?search=${encodeURIComponent(searchQuery)}`);
         if (response.ok) {
           const data: Player[] = await response.json();
           // Filter out players already on the roster
@@ -154,7 +174,6 @@ function ManageRolesPage() {
   const handleAddPlayer = async (player: Player) => {
     setRosterError(null);
     try {
-      // --- THIS API (roster) DOES NOT EXIST YET ---
       const response = await fetch("/api/admin/coaching/roster", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -169,6 +188,29 @@ function ManageRolesPage() {
       setRosterError(
         err instanceof Error ? err.message : "An error occurred"
       );
+    }
+  };
+
+  // Add multiple selected players to roster
+  const handleAddSelected = async () => {
+    const toAdd = searchResults.filter((p) => selectedToAdd[p.id]);
+    if (toAdd.length === 0) return;
+    setRosterError(null);
+    try {
+      for (const player of toAdd) {
+        const res = await fetch("/api/admin/coaching/roster", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ programId, playerId: player.id, action: "add" }),
+        });
+        if (!res.ok) throw new Error("Failed to add some players");
+      }
+      setRoster((prev) => [...prev, ...toAdd]);
+      setSelectedToAdd({});
+      setSearchQuery("");
+      setSearchResults([]);
+    } catch (err) {
+      setRosterError(err instanceof Error ? err.message : "An error occurred");
     }
   };
 
@@ -354,14 +396,40 @@ function ManageRolesPage() {
               {/* Search Results */}
               <div className="mt-2 space-y-2 max-h-48 overflow-y-auto">
                 {isSearching && <p className="text-sm text-gray-500 mt-1">Searching...</p>}
-                {searchResults.map((player) => (
-                  <div key={player.id} className="flex justify-between items-center p-2 bg-gray-100 rounded">
-                    <span>{player.name}</span>
-                    <Button size="sm" variant="ghost" onClick={() => handleAddPlayer(player)}>
-                      <UserPlus className="h-4 w-4 mr-2" /> Add
+                {searchResults.map((player) => {
+                  const firstAff = player.affiliations && player.affiliations[0];
+                  const extraCount = (player.affiliations?.length || 0) - 1;
+                  return (
+                    <div key={player.id} className="flex justify-between items-center p-2 bg-gray-100 rounded">
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={!!selectedToAdd[player.id]}
+                          onChange={(e) => setSelectedToAdd((m) => ({ ...m, [player.id]: e.target.checked }))}
+                        />
+                        <div>
+                          <div className="font-medium">{player.name}</div>
+                          {firstAff && (
+                            <div className="text-xs text-gray-600">
+                              {firstAff.teamName || "Team"} • {firstAff.tournamentName || "Tournament"}
+                              {extraCount > 0 && ` (+${extraCount} more)`}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <Button size="sm" variant="ghost" onClick={() => handleAddPlayer(player)}>
+                        <UserPlus className="h-4 w-4 mr-2" /> Add
+                      </Button>
+                    </div>
+                  );
+                })}
+                {searchResults.length > 0 && (
+                  <div className="flex justify-end">
+                    <Button size="sm" onClick={handleAddSelected}>
+                      <UserPlus className="h-4 w-4 mr-2" /> Add Selected
                     </Button>
                   </div>
-                ))}
+                )}
               </div>
             </div>
 
@@ -388,6 +456,60 @@ function ManageRolesPage() {
                   ))
                 )}
               </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* --- Card 4: Assign Coaches to Program --- */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Assign Coaches</CardTitle>
+            <CardDescription>
+              Assign one or more coaches to this program. Assigned coaches will see all sessions under this program in their dashboard.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+                <Label>Coaches</Label>
+                <div className="max-h-48 overflow-y-auto border rounded-md p-2 bg-gray-50">
+                  {coaches.length === 0 ? (
+                    <p className="text-sm text-gray-500">No coaches yet.</p>
+                  ) : (
+                    coaches.map((c) => (
+                      <label key={c.id} className="flex items-center gap-2 py-1">
+                        <input
+                          type="checkbox"
+                          checked={!!selectedCoachIds[c.id]}
+                          onChange={(e) => setSelectedCoachIds((m) => ({ ...m, [c.id]: e.target.checked }))}
+                        />
+                        <span className="font-medium">{c.full_name}</span>
+                        <span className="text-xs text-gray-500">{c.email}</span>
+                      </label>
+                    ))
+                  )}
+                </div>
+            </div>
+
+            <div className="flex justify-end">
+              <Button
+                onClick={async () => {
+                  setError(null);
+                  const coachIds = Object.keys(selectedCoachIds).filter((k) => selectedCoachIds[k]);
+                  try {
+                    const res = await fetch("/api/admin/coaching/program/assign-coaches", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ programId, coachIds }),
+                    });
+                    if (!res.ok) throw new Error("Failed to assign coaches");
+                    alert("Coaches assigned successfully");
+                  } catch (e: any) {
+                    setError(e?.message || "Failed to assign coaches");
+                  }
+                }}
+              >
+                Save Coach Assignments
+              </Button>
             </div>
           </CardContent>
         </Card>

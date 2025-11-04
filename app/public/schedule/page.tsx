@@ -59,7 +59,7 @@ interface ScheduleFilters {
 
 export default function PublicSchedulePage() {
   const searchParams = useSearchParams();
-  const tournamentId = searchParams.get('tournamentId') || 'default-tournament';
+  const tournamentId = searchParams.get('tournamentId') || '';
 
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [matches, setMatches] = useState<Match[]>([]);
@@ -94,7 +94,8 @@ export default function PublicSchedulePage() {
     setError(null);
 
     try {
-      const params = new URLSearchParams({ tournamentId });
+      const params = new URLSearchParams();
+      if (tournamentId) params.append('tournamentId', tournamentId);
       if (selectedDate) params.append('date', selectedDate);
       if (selectedRound) params.append('round', selectedRound);
       if (selectedField) params.append('field', selectedField);

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { supabase } from "@/lib/supabaseClient";
 import {
   Download,
   FileSpreadsheet,
@@ -43,6 +44,7 @@ export default function DataExportPage() {
     success: boolean;
     message: string;
   } | null>(null);
+  const [counts, setCounts] = useState<{teams:number; players:number; rosters:number; matches:number; spirit:number}>({teams:0,players:0,rosters:0,matches:0,spirit:0});
 
   const exportOptions: ExportOption[] = [
     {
@@ -50,44 +52,64 @@ export default function DataExportPage() {
       label: "Teams",
       description: "Team information, contact details, and status",
       icon: Users,
-      recordCount: 24,
+      recordCount: counts.teams,
     },
     {
       id: "players",
       label: "Players",
       description: "Individual player details and registration info",
       icon: Users,
-      recordCount: 156,
+      recordCount: counts.players,
     },
     {
       id: "rosters",
       label: "Team Rosters",
       description: "Team rosters with player assignments",
       icon: FileText,
-      recordCount: 24,
+      recordCount: counts.rosters,
     },
     {
       id: "matches",
       label: "Matches",
       description: "Match schedules, scores, and results",
       icon: Calendar,
-      recordCount: 48,
+      recordCount: counts.matches,
     },
     {
       id: "spirit-scores",
       label: "Spirit Scores",
       description: "Spirit of the game scores and feedback",
       icon: Trophy,
-      recordCount: 48,
+      recordCount: counts.spirit,
     },
     {
       id: "all",
       label: "Complete Data",
       description: "Export all tournament data in one file",
       icon: FileSpreadsheet,
-      recordCount: 300,
+      recordCount: counts.teams + counts.players + counts.rosters + counts.matches + counts.spirit,
     },
   ];
+
+  useEffect(() => {
+    const fetchCounts = async () => {
+      if (!tournamentId) return;
+      const [teams, players, rosters, matches] = await Promise.all([
+        supabase.from('teams').select('id', { count: 'exact', head: true }).eq('tournament_id', tournamentId),
+        supabase.from('players').select('id', { count: 'exact', head: true }),
+        supabase.from('team_members').select('id', { count: 'exact', head: true }).eq('tournament_id', tournamentId),
+        supabase.from('matches').select('id', { count: 'exact', head: true }).eq('tournament_id', tournamentId),
+      ]);
+      setCounts({
+        teams: teams.count || 0,
+        players: players.count || 0,
+        rosters: rosters.count || 0,
+        matches: matches.count || 0,
+        spirit: 0,
+      });
+    };
+    fetchCounts();
+  }, [tournamentId]);
 
   const formatOptions = [
     { id: "csv" as ExportFormat, label: "CSV", icon: FileSpreadsheet },
@@ -100,40 +122,70 @@ export default function DataExportPage() {
     setExportStatus(null);
 
     try {
-      // TODO: Implement actual API call
-      // const response = await fetch(`/api/admin/reports/export`, {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({
-      //     tournamentId,
-      //     type: selectedType,
-      //     format: selectedFormat,
-      //   }),
-      // });
+      const fileName = `tournament_${selectedType}_${new Date().toISOString().split("T")[0]}.${selectedFormat}`;
+      const getData = async (): Promise<any[]> => {
+        if (!tournamentId) return [];
+        switch (selectedType) {
+          case 'teams': {
+            const { data } = await supabase.from('teams').select('*').eq('tournament_id', tournamentId);
+            return data || [];
+          }
+          case 'players': {
+            const { data } = await supabase.from('players').select('*');
+            return data || [];
+          }
+          case 'rosters': {
+            const { data } = await supabase.from('team_members').select('*').eq('tournament_id', tournamentId);
+            return data || [];
+          }
+          case 'matches': {
+            const { data } = await supabase.from('matches').select('*').eq('tournament_id', tournamentId);
+            return data || [];
+          }
+          case 'spirit-scores': {
+            const { data } = await supabase.from('session_assessments').select('*');
+            return data || [];
+          }
+          case 'all': {
+            const [teams, players, rosters, matches] = await Promise.all([
+              supabase.from('teams').select('*').eq('tournament_id', tournamentId),
+              supabase.from('players').select('*'),
+              supabase.from('team_members').select('*').eq('tournament_id', tournamentId),
+              supabase.from('matches').select('*').eq('tournament_id', tournamentId),
+            ]);
+            return [{ teams: teams.data || [], players: players.data || [], rosters: rosters.data || [], matches: matches.data || [] }];
+          }
+        }
+      };
 
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const rows = await getData();
 
-      // Mock successful export
-      const fileName = `tournament_${selectedType}_${
-        new Date().toISOString().split("T")[0]
-      }.${selectedFormat}`;
+      let blob: Blob;
+      if (selectedFormat === 'json') {
+        blob = new Blob([JSON.stringify(rows, null, 2)], { type: 'application/json' });
+      } else {
+        const toCsv = (arr: any[]) => {
+          if (!arr || arr.length === 0) return '';
+          const headers = Array.from(new Set(arr.flatMap(obj => Object.keys(obj))));
+          const csvRows = [headers.join(',')].concat(arr.map(obj => headers.map(h => JSON.stringify((obj as any)[h] ?? '')).join(',')));
+          return csvRows.join('\n');
+        };
+        const csvContent = Array.isArray(rows) && rows.length === 1 && (rows[0] as any).teams && selectedType === 'all'
+          ? `# teams\n${toCsv((rows[0] as any).teams)}\n\n# players\n${toCsv((rows[0] as any).players)}\n\n# rosters\n${toCsv((rows[0] as any).rosters)}\n\n# matches\n${toCsv((rows[0] as any).matches)}`
+          : toCsv(rows as any[]);
+        blob = new Blob([csvContent], { type: 'text/csv' });
+      }
 
-      // TODO: Replace with actual file download
-      // const blob = await response.blob();
-      // const url = window.URL.createObjectURL(blob);
-      // const a = document.createElement('a');
-      // a.href = url;
-      // a.download = fileName;
-      // document.body.appendChild(a);
-      // a.click();
-      // window.URL.revokeObjectURL(url);
-      // document.body.removeChild(a);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
 
-      setExportStatus({
-        success: true,
-        message: `Successfully exported ${selectedType} data as ${selectedFormat.toUpperCase()}`,
-      });
+      setExportStatus({ success: true, message: `Successfully exported ${selectedType}` });
     } catch (error) {
       setExportStatus({
         success: false,

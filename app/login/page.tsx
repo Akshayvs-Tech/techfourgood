@@ -58,7 +58,7 @@ export default function LoginPage() {
         return;
       }
 
-      // Check if user is a coach (for future use)
+      // Check if user is a coach
       const { data: coachData } = await supabase
         .from("coaches")
         .select("id")
@@ -66,11 +66,19 @@ export default function LoginPage() {
         .maybeSingle();
 
       if (coachData) {
-        // For now, redirect to a placeholder or show message
-        // TODO: Implement coach dashboard
-        setError("Coach login is not yet available. Please contact an administrator.");
-        await supabase.auth.signOut();
-        setLoading(false);
+        router.push("/coach/dashboard");
+        return;
+      }
+
+      // Check if user is a program manager
+      const { data: pmData } = await supabase
+        .from("program_managers")
+        .select("id")
+        .eq("auth_user_id", userId)
+        .maybeSingle();
+
+      if (pmData) {
+        router.push("/pm/dashboard");
         return;
       }
 
@@ -90,7 +98,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md bg-white rounded-xl shadow-lg border border-gray-200 p-8">
         <h1 className="text-2xl font-bold text-gray-900 mb-2">Login</h1>
         <p className="text-sm text-gray-600 mb-6">
-          Login as Admin or Player. Your account type will be determined automatically.
+          Login as Admin, Player, Coach, or Program Manager. Your account type will be detected automatically.
         </p>
         <form onSubmit={onSubmit} className="space-y-4">
           <div>
