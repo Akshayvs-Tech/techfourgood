@@ -43,7 +43,7 @@ export default function LivescoreTable() {
   }, []);
 
   return (
-    <div className="mt-10 w-full flex flex-col items-center">
+    <div className="mt-10 w-full flex flex-col items-center bg-transparent border-0">
       <h2 className="text-3xl font-bold text-white mb-4 drop-shadow-lg">🏆 Live Scores</h2>
 
       <div className="w-[90%] max-w-4xl overflow-hidden rounded-2xl shadow-lg bg-white/10 backdrop-blur-md border border-white/20">

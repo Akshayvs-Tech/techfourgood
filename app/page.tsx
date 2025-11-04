@@ -78,7 +78,7 @@ export default function HomePage() {
               Follow the action as it happens.
             </p>
           </div>
-          <div className="max-w-6xl mx-auto bg-gray-800/50 rounded-xl shadow-2xl border border-gray-700 overflow-hidden">
+          <div className="max-w-6xl mx-auto  rounded-xl shadow-2xl overflow-hidden">
             <LiveScoreTable />
           </div>
         </div>
