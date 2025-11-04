@@ -38,12 +38,23 @@ export default function TournamentDetailsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [programManagers, setProgramManagers] = useState<{ id: string; full_name: string }[]>([]);
+  const [selectedPmId, setSelectedPmId] = useState<string>("");
 
   // Load tournament data if editing
   useEffect(() => {
     if (tournamentId) {
       loadTournament();
     }
+    // Load program managers for assignment
+    const loadPMs = async () => {
+      try {
+        const res = await fetch("/api/admin/program-managers");
+        const j = await res.json();
+        setProgramManagers(j.programManagers || []);
+      } catch {}
+    };
+    loadPMs();
   }, [tournamentId]);
 
   const loadTournament = async () => {
@@ -157,6 +168,15 @@ export default function TournamentDetailsPage() {
 
       const result = await response.json();
       const savedTournamentId = result.tournament?.id || tournamentId;
+
+      // Assign program manager if selected
+      if (selectedPmId) {
+        await fetch("/api/admin/tournament/assign-pm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tournamentId: savedTournamentId, programManagerId: selectedPmId }),
+        });
+      }
 
       // Redirect to forms setup page or back to dashboard
       if (!isEditMode) {
@@ -352,6 +372,21 @@ export default function TournamentDetailsPage() {
                 <option value="knockout">Knockout</option>
                 <option value="round-robin">Round Robin</option>
                 <option value="group-knockout">Group Stage + Knockout</option>
+              </select>
+            </div>
+
+            {/* Program Manager Assignment */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Assign Program Manager</label>
+              <select
+                value={selectedPmId}
+                onChange={(e) => setSelectedPmId(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="">Select Program Manager (optional)</option>
+                {programManagers.map((pm) => (
+                  <option key={pm.id} value={pm.id}>{pm.full_name}</option>
+                ))}
               </select>
             </div>
 

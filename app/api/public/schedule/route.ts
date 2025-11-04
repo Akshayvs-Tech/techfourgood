@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServiceSupabase } from "@/lib/supabaseClient";
 
 interface PublicMatch {
   id: string;
@@ -10,13 +11,9 @@ interface PublicMatch {
   scheduledDate: string;
   scheduledTime: string;
   field: string;
-  fieldLocation?: string;
   duration: number;
   status: "scheduled" | "in-progress" | "completed" | "cancelled";
-  score?: {
-    team1Score?: number;
-    team2Score?: number;
-  };
+  score?: { team1Score?: number; team2Score?: number };
 }
 
 interface Tournament {
@@ -38,195 +35,91 @@ export async function GET(request: NextRequest) {
     const round = searchParams.get("round");
     const team = searchParams.get("team");
 
-    if (!tournamentId) {
-      return NextResponse.json(
-        { error: "Tournament ID is required" },
-        { status: 400 }
-      );
+    const db = getServiceSupabase();
+
+    // If tournamentId is provided, scope by tournament; else fetch all upcoming/in-progress matches
+    let matchesQuery = db
+      .from("matches")
+      .select("id, tournament_id, match_number, round, pool, team1_id, team2_id, scheduled_date, scheduled_time, field, duration, status, score1, score2")
+      .order("scheduled_date")
+      .order("scheduled_time");
+    if (tournamentId) {
+      matchesQuery = matchesQuery.eq("tournament_id", tournamentId);
     }
+    const { data: matchesData, error: mErr } = await matchesQuery;
+    if (mErr) throw mErr;
 
-    // TODO: Fetch tournament from database
-    // const tournament = await db.tournaments.findUnique({
-    //   where: { id: tournamentId },
-    // });
+    const teamIds = Array.from(
+      new Set((matchesData || []).flatMap((m: any) => [m.team1_id, m.team2_id]).filter(Boolean))
+    );
+    const { data: teams } = teamIds.length
+      ? await db.from("teams").select("id, name").in("id", teamIds)
+      : ({ data: [] } as any);
+    const teamById = new Map((teams || []).map((t: any) => [t.id, t.name]));
 
-    // Mock tournament data
-    const tournament: Tournament = {
-      id: tournamentId,
-      name: "Summer Ultimate Championship 2024",
-      startDate: "2024-12-01",
-      endDate: "2024-12-07",
-      venue: "Central Sports Complex",
-      format: "Pool Play + Bracket",
-      status: "published",
-    };
+    const tournamentIds = Array.from(new Set((matchesData || []).map((m: any) => m.tournament_id)));
+    const { data: tournaments } = tournamentIds.length
+      ? await db.from("tournaments").select("id, name, start_date, end_date, venue, format, status").in("id", tournamentIds)
+      : ({ data: [] } as any);
+    const tById = new Map((tournaments || []).map((t: any) => [t.id, t]));
 
-    if (tournament.status !== "published") {
-      return NextResponse.json(
-        { error: "Schedule not yet published" },
-        { status: 404 }
-      );
-    }
+    let matches: PublicMatch[] = (matchesData || []).map((m: any) => ({
+      id: m.id,
+      matchNumber: m.match_number || 0,
+      round: m.round || 0,
+      pool: m.pool || undefined,
+      team1: teamById.get(m.team1_id) || "TBD",
+      team2: teamById.get(m.team2_id) || "TBD",
+      scheduledDate: m.scheduled_date || "",
+      scheduledTime: m.scheduled_time || "",
+      field: m.field || "",
+      duration: m.duration || 75,
+      status: (m.status as any) || "scheduled",
+      score: m.score1 != null || m.score2 != null ? { team1Score: m.score1 || 0, team2Score: m.score2 || 0 } : undefined,
+    }));
 
-    // TODO: Fetch matches from database with filters
-    // const matches = await db.matches.findMany({
-    //   where: {
-    //     tournamentId,
-    //     ...(date && { scheduledDate: new Date(date) }),
-    //     ...(field && { fieldId: field }),
-    //     ...(round && { round: parseInt(round) }),
-    //     ...(team && {
-    //       OR: [
-    //         { team1: { contains: team, mode: 'insensitive' } },
-    //         { team2: { contains: team, mode: 'insensitive' } },
-    //       ],
-    //     }),
-    //   },
-    //   include: {
-    //     field: true,
-    //   },
-    //   orderBy: [
-    //     { scheduledDate: 'asc' },
-    //     { scheduledTime: 'asc' },
-    //   ],
-    // });
-
-    // Mock matches data
-    const mockMatches: PublicMatch[] = generateMockSchedule(tournamentId);
-
-    // Apply filters
-    let filteredMatches = mockMatches;
-
-    if (date) {
-      filteredMatches = filteredMatches.filter((m) => m.scheduledDate === date);
-    }
-
-    if (field) {
-      filteredMatches = filteredMatches.filter((m) => m.field === field);
-    }
-
-    if (round) {
-      filteredMatches = filteredMatches.filter(
-        (m) => m.round === parseInt(round)
-      );
-    }
-
+    // Filters
+    if (date) matches = matches.filter((m) => m.scheduledDate === date);
+    if (field) matches = matches.filter((m) => m.field === field);
+    if (round) matches = matches.filter((m) => m.round === parseInt(round));
     if (team) {
       const searchTerm = team.toLowerCase();
-      filteredMatches = filteredMatches.filter(
-        (m) =>
-          m.team1.toLowerCase().includes(searchTerm) ||
-          m.team2.toLowerCase().includes(searchTerm)
+      matches = matches.filter(
+        (m) => m.team1.toLowerCase().includes(searchTerm) || m.team2.toLowerCase().includes(searchTerm)
       );
     }
 
-    // Group matches by date
-    const matchesByDate = filteredMatches.reduce((acc, match) => {
-      if (!acc[match.scheduledDate]) {
-        acc[match.scheduledDate] = [];
-      }
+    const matchesByDate = matches.reduce((acc, match) => {
+      if (!acc[match.scheduledDate]) acc[match.scheduledDate] = [];
       acc[match.scheduledDate].push(match);
       return acc;
     }, {} as Record<string, PublicMatch[]>);
 
-    // Get unique dates, rounds, and fields for filters
-    const uniqueDates = [
-      ...new Set(mockMatches.map((m) => m.scheduledDate)),
-    ].sort();
-    const uniqueRounds = [...new Set(mockMatches.map((m) => m.round))].sort();
-    const uniqueFields = [...new Set(mockMatches.map((m) => m.field))].sort();
-    const uniqueTeams = [
-      ...new Set(mockMatches.flatMap((m) => [m.team1, m.team2])),
-    ].sort();
+    const uniqueDates = [...new Set(matches.map((m) => m.scheduledDate))].sort();
+    const uniqueRounds = [...new Set(matches.map((m) => m.round))].sort();
+    const uniqueFields = [...new Set(matches.map((m) => m.field))].sort();
+    const uniqueTeams = [...new Set(matches.flatMap((m) => [m.team1, m.team2]))].sort();
+
+    // If a specific tournament was requested, include it; otherwise omit
+    const tournamentPayload = tournamentId ? tById.get(tournamentId) ? {
+      id: tById.get(tournamentId).id,
+      name: tById.get(tournamentId).name,
+      startDate: tById.get(tournamentId).start_date,
+      endDate: tById.get(tournamentId).end_date,
+      venue: tById.get(tournamentId).venue,
+      format: tById.get(tournamentId).format,
+      status: tById.get(tournamentId).status,
+    } as Tournament : null : null;
 
     return NextResponse.json({
-      tournament,
-      matches: filteredMatches,
+      tournament: tournamentPayload,
+      matches,
       matchesByDate,
-      filters: {
-        dates: uniqueDates,
-        rounds: uniqueRounds,
-        fields: uniqueFields,
-        teams: uniqueTeams,
-      },
-      totalMatches: filteredMatches.length,
+      filters: { dates: uniqueDates, rounds: uniqueRounds, fields: uniqueFields, teams: uniqueTeams },
+      totalMatches: matches.length,
     });
   } catch (error) {
     console.error("Error fetching schedule:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch schedule" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to fetch schedule" }, { status: 500 });
   }
-}
-
-// Generate mock schedule data
-function generateMockSchedule(tournamentId: string): PublicMatch[] {
-  const teams = [
-    "Thunder Bolts",
-    "Lightning Strike",
-    "Storm Chasers",
-    "Wind Runners",
-    "Sky Warriors",
-    "Cloud Nine",
-    "Hurricane Force",
-    "Tornado Twist",
-  ];
-
-  const fields = ["Field 1", "Field 2", "Field 3", "Field 4"];
-  const dates = ["2024-12-01", "2024-12-02", "2024-12-03"];
-  const times = ["9:00 AM", "10:30 AM", "12:00 PM", "1:30 PM", "3:00 PM"];
-  const statuses: PublicMatch["status"][] = [
-    "scheduled",
-    "in-progress",
-    "completed",
-  ];
-
-  const matches: PublicMatch[] = [];
-  let matchId = 1;
-
-  // Pool play matches
-  for (let i = 0; i < 16; i++) {
-    matches.push({
-      id: `match-${matchId}`,
-      matchNumber: matchId,
-      round: Math.floor(i / 8) + 1,
-      pool: (i % 2) + 1,
-      team1: teams[i % teams.length],
-      team2: teams[(i + 1) % teams.length],
-      scheduledDate: dates[i % dates.length],
-      scheduledTime: times[i % times.length],
-      field: fields[i % fields.length],
-      fieldLocation: i % 2 === 0 ? "Main Complex" : "South Side",
-      duration: 75,
-      status: i < 8 ? "completed" : i < 10 ? "in-progress" : "scheduled",
-      ...(i < 8 && {
-        score: {
-          team1Score: Math.floor(Math.random() * 15) + 5,
-          team2Score: Math.floor(Math.random() * 15) + 5,
-        },
-      }),
-    });
-    matchId++;
-  }
-
-  // Bracket matches
-  for (let i = 0; i < 8; i++) {
-    matches.push({
-      id: `match-${matchId}`,
-      matchNumber: matchId,
-      round: 3 + Math.floor(i / 4),
-      team1: i < 4 ? teams[i] : "TBD",
-      team2: i < 4 ? teams[i + 4] : "TBD",
-      scheduledDate: dates[2],
-      scheduledTime: times[i % times.length],
-      field: fields[i % fields.length],
-      fieldLocation: i % 2 === 0 ? "Main Complex" : "South Side",
-      duration: 90,
-      status: "scheduled",
-    });
-    matchId++;
-  }
-
-  return matches;
 }

@@ -70,6 +70,18 @@ export default function LoginPage() {
         return;
       }
 
+      // Check if user is a program manager
+      const { data: pmData } = await supabase
+        .from("program_managers")
+        .select("id")
+        .eq("auth_user_id", userId)
+        .maybeSingle();
+
+      if (pmData) {
+        router.push("/pm/dashboard");
+        return;
+      }
+
       // User exists in auth but not in any role table
       setError("Your account is not associated with any role. Please contact support.");
       await supabase.auth.signOut();
@@ -86,7 +98,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md bg-white rounded-xl shadow-lg border border-gray-200 p-8">
         <h1 className="text-2xl font-bold text-gray-900 mb-2">Login</h1>
         <p className="text-sm text-gray-600 mb-6">
-          Login as Admin, Player, or Coach. Your account type will be determined automatically.
+          Login as Admin, Player, Coach, or Program Manager. Your account type will be detected automatically.
         </p>
         <form onSubmit={onSubmit} className="space-y-4">
           <div>

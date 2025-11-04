@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
@@ -31,7 +31,22 @@ export default function RegisterPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Use default tournament if not provided in URL
-  const tournamentId = searchParams.get("tournamentId") || "default-tournament";
+  const tournamentId = searchParams.get("tournamentId") || "";
+
+  const [extraFields, setExtraFields] = useState<any[]>([]);
+
+  useEffect(() => {
+    const loadForm = async () => {
+      if (!tournamentId) return;
+      try {
+        const res = await fetch(`/api/admin/setup/forms?tournamentId=${tournamentId}`);
+        if (!res.ok) return;
+        const j = await res.json();
+        setExtraFields(Array.isArray(j.forms?.fields) ? j.forms.fields : []);
+      } catch {}
+    };
+    loadForm();
+  }, [tournamentId]);
 
   // Multi-step state
   const [currentStep, setCurrentStep] = useState<1 | 2>(1);
@@ -590,6 +605,43 @@ export default function RegisterPage() {
                   </p>
                 )}
               </div>
+
+              {/* Dynamic Extra Fields from Form Builder */}
+              {extraFields.length > 0 && (
+                <div className="space-y-4">
+                  {extraFields
+                    .filter((f: any) => {
+                      const norm = (s: string) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+                      const core = [
+                        "fullname","email","password","phonenumber","phone","contactnumber","gender","dateofbirth","dob"
+                      ];
+                      return !core.includes(norm(f.label || ""));
+                    })
+                    .map((field: any, idx: number) => (
+                      <div key={idx} className="space-y-2">
+                        <label className="block text-sm font-semibold text-gray-700">
+                          {field.label}{field.isRequired ? ' *' : ''}
+                        </label>
+                        {field.fieldType === 'select' ? (
+                          <select className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-gray-900 bg-white">
+                            <option value="">Select</option>
+                            {(field.options || []).map((opt: string) => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        ) : field.fieldType === 'textarea' ? (
+                          <textarea className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-gray-900 placeholder-gray-500 bg-white" placeholder={field.placeholder || ''} />
+                        ) : (
+                          <input
+                            type={field.fieldType === 'tel' ? 'tel' : field.fieldType === 'number' ? 'number' : field.fieldType === 'date' ? 'date' : 'text'}
+                            className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-gray-900 placeholder-gray-500 bg-white"
+                            placeholder={field.placeholder || ''}
+                          />
+                        )}
+                      </div>
+                  ))}
+                </div>
+              )}
 
               {/* Email */}
               <div className="space-y-2">

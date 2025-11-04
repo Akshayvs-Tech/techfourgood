@@ -57,7 +57,7 @@ export default function AdminDashboardPage() {
   const searchParams = useSearchParams();
   const tournamentId = searchParams.get("tournamentId");
 
-  const [activeTab, setActiveTab] = useState<"tournaments" | "admins" | "coaches" | "coaching">("tournaments");
+  const [activeTab, setActiveTab] = useState<"tournaments" | "admins" | "coaches" | "programManagers" | "coaching">("tournaments");
   const [upcoming, setUpcoming] = useState<any[]>([]);
   const [past, setPast] = useState<any[]>([]);
   const [admins, setAdmins] = useState<{ id: string; full_name: string; email: string; phone?: string | null; role: string }[]>([]);
@@ -68,10 +68,15 @@ export default function AdminDashboardPage() {
   const [coachForm, setCoachForm] = useState({ fullName: "", email: "", phone: "", password: "" });
   const [coachSaving, setCoachSaving] = useState(false);
   const [coachError, setCoachError] = useState<string | null>(null);
+  const [programManagers, setProgramManagers] = useState<{ id: string; full_name: string; email: string; phone?: string | null }[]>([]);
+  const [pmForm, setPmForm] = useState({ fullName: "", email: "", phone: "", password: "" });
+  const [pmSaving, setPmSaving] = useState(false);
+  const [pmError, setPmError] = useState<string | null>(null);
   const [programs, setPrograms] = useState<{ id: string; name: string }[]>([]);
   const [selectedProgramId, setSelectedProgramId] = useState<string>("");
   const [upcomingSessions, setUpcomingSessions] = useState<{ id: string; program_id: string; date: string; location: string; type: string }[]>([]);
   const [pastSessions, setPastSessions] = useState<{ id: string; program_id: string; date: string; location: string; type: string }[]>([]);
+  const [analytics, setAnalytics] = useState<{ programName?: string; totalPlayers?: number; totalSessions?: number; overallAttendanceRate?: number; overallAverageScore?: number } | null>(null);
 
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -157,6 +162,17 @@ export default function AdminDashboardPage() {
         }
       };
 
+      const loadProgramManagers = async () => {
+        try {
+          const res = await fetch("/api/admin/program-managers");
+          if (!res.ok) throw new Error("Failed to load program managers");
+          const j = await res.json();
+          setProgramManagers(j.programManagers || []);
+        } catch (e) {
+          console.error(e);
+        }
+      };
+
       const loadSessions = async () => {
         const nowIso = new Date().toISOString();
         const { data, error } = await supabase
@@ -178,6 +194,7 @@ export default function AdminDashboardPage() {
         loadCoaches(),
         loadPrograms(),
         loadSessions(),
+        loadProgramManagers(),
       ]);
     };
     
@@ -188,6 +205,32 @@ export default function AdminDashboardPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tournamentId]);
+
+  // Load coaching analytics when a program is selected
+  useEffect(() => {
+    const fetchAnalytics = async () => {
+      if (!selectedProgramId) {
+        setAnalytics(null);
+        return;
+      }
+      try {
+        const res = await fetch(`/api/admin/coaching/analytics?programId=${selectedProgramId}`);
+        if (!res.ok) throw new Error("Failed to load analytics");
+        const data = await res.json();
+        setAnalytics({
+          programName: data.programName,
+          totalPlayers: data.totalPlayers,
+          totalSessions: data.totalSessions,
+          overallAttendanceRate: data.overallAttendanceRate,
+          overallAverageScore: data.overallAverageScore,
+        });
+      } catch (e) {
+        // Silent fail; keep UI usable
+        setAnalytics(null);
+      }
+    };
+    fetchAnalytics();
+  }, [selectedProgramId]);
 
   const fetchTournamentDetails = async () => {
     setIsLoading(true);
@@ -386,6 +429,34 @@ export default function AdminDashboardPage() {
     if (!error) setCoaches((data as any) || []);
   };
 
+  const addProgramManager = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPmSaving(true);
+    setPmError(null);
+    const res = await fetch("/api/admin/program-managers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fullName: pmForm.fullName,
+        email: pmForm.email,
+        phone: pmForm.phone || null,
+        password: pmForm.password,
+      }),
+    });
+    setPmSaving(false);
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      setPmError(j.message || "Failed to add program manager");
+      return;
+    }
+    setPmForm({ fullName: "", email: "", phone: "", password: "" });
+    try {
+      const list = await fetch("/api/admin/program-managers");
+      const j = await list.json();
+      setProgramManagers(j.programManagers || []);
+    } catch {}
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
@@ -439,6 +510,12 @@ export default function AdminDashboardPage() {
             onClick={() => setActiveTab("coaches")}
           >
             Coaches
+          </button>
+          <button
+            className={`px-4 py-2 rounded-md border ${activeTab === "programManagers" ? "bg-blue-600 text-white border-blue-600" : "bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 border-gray-300 dark:border-gray-700"}`}
+            onClick={() => setActiveTab("programManagers")}
+          >
+            Program Managers
           </button>
           <button
             className={`px-4 py-2 rounded-md border ${activeTab === "coaching" ? "bg-blue-600 text-white border-blue-600" : "bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 border-gray-300 dark:border-gray-700"}`}
@@ -520,6 +597,76 @@ export default function AdminDashboardPage() {
           </div>
           </div>
         </div>
+        )}
+
+        {activeTab === "programManagers" && (
+          <div className="space-y-6 mb-8">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Add Program Manager</h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Program Managers can create matches and update live scores for assigned tournaments.
+              </p>
+              <form onSubmit={addProgramManager} className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                <input
+                  className="border rounded-md px-3 py-2"
+                  placeholder="Full name"
+                  value={pmForm.fullName}
+                  onChange={(e) => setPmForm((f) => ({ ...f, fullName: e.target.value }))}
+                  required
+                />
+                <input
+                  type="email"
+                  className="border rounded-md px-3 py-2"
+                  placeholder="Email"
+                  value={pmForm.email}
+                  onChange={(e) => setPmForm((f) => ({ ...f, email: e.target.value }))}
+                  required
+                />
+                <input
+                  type="password"
+                  className="border rounded-md px-3 py-2"
+                  placeholder="Password (required)"
+                  value={pmForm.password}
+                  onChange={(e) => setPmForm((f) => ({ ...f, password: e.target.value }))}
+                  required
+                />
+                <input
+                  className="border rounded-md px-3 py-2"
+                  placeholder="Phone (optional)"
+                  value={pmForm.phone}
+                  onChange={(e) => setPmForm((f) => ({ ...f, phone: e.target.value }))}
+                />
+                <button type="submit" disabled={pmSaving} className="px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700">
+                  {pmSaving ? "Adding..." : "Add Program Manager"}
+                </button>
+              </form>
+              {pmError && <p className="text-sm text-red-600 mt-2">{pmError}</p>}
+            </div>
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden">
+              {programManagers.length === 0 ? (
+                <p className="p-4 text-gray-600">No program managers yet.</p>
+              ) : (
+                <table className="w-full">
+                  <thead>
+                    <tr className="text-left text-sm text-gray-600 border-b">
+                      <th className="p-3">Name</th>
+                      <th className="p-3">Email</th>
+                      <th className="p-3">Phone</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {programManagers.map((p) => (
+                      <tr key={p.id} className="border-b last:border-0">
+                        <td className="p-3">{p.full_name}</td>
+                        <td className="p-3">{p.email}</td>
+                        <td className="p-3">{p.phone || "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
         )}
 
         {activeTab === "admins" && (
@@ -650,6 +797,26 @@ export default function AdminDashboardPage() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {selectedProgramId && (
+                <div className="md:col-span-2 grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border">
+                    <p className="text-xs text-gray-500">Players</p>
+                    <p className="text-2xl font-semibold">{analytics?.totalPlayers ?? '-'}</p>
+                  </div>
+                  <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border">
+                    <p className="text-xs text-gray-500">Sessions</p>
+                    <p className="text-2xl font-semibold">{analytics?.totalSessions ?? '-'}</p>
+                  </div>
+                  <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border">
+                    <p className="text-xs text-gray-500">Avg Attendance</p>
+                    <p className="text-2xl font-semibold">{analytics?.overallAttendanceRate != null ? `${Math.round(analytics.overallAttendanceRate*100)}%` : '-'}</p>
+                  </div>
+                  <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border">
+                    <p className="text-xs text-gray-500">Avg Score</p>
+                    <p className="text-2xl font-semibold">{analytics?.overallAverageScore != null ? analytics.overallAverageScore.toFixed(1) : '-'}</p>
+                  </div>
+                </div>
+              )}
               <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
                 <h3 className="text-md font-semibold text-gray-900 dark:text-white mb-4">Upcoming Sessions</h3>
                 <div className="space-y-3">
@@ -855,7 +1022,7 @@ export default function AdminDashboardPage() {
                     : "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300"
                 }`}
               >
-                {tournament?.status.replace("-", " ").toUpperCase()}
+                {(tournament?.status?.replace?.("-", " ")?.toUpperCase?.()) || ""}
               </span>
             </div>
           </div>
