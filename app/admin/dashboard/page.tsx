@@ -19,6 +19,7 @@ import {
   ChevronRight,
   Info,
 } from "lucide-react";
+import { supabase } from "@/lib/supabaseClient";
 
 interface Tournament {
   id: string;
@@ -56,6 +57,18 @@ export default function AdminDashboardPage() {
   const searchParams = useSearchParams();
   const tournamentId = searchParams.get("tournamentId");
 
+  const [activeTab, setActiveTab] = useState<"tournaments" | "admins" | "coaches">("tournaments");
+  const [upcoming, setUpcoming] = useState<any[]>([]);
+  const [past, setPast] = useState<any[]>([]);
+  const [admins, setAdmins] = useState<{ id: string; full_name: string; email: string; phone?: string | null; role: string }[]>([]);
+  const [adminForm, setAdminForm] = useState({ fullName: "", email: "", phone: "", password: "" });
+  const [adminSaving, setAdminSaving] = useState(false);
+  const [adminError, setAdminError] = useState<string | null>(null);
+  const [coaches, setCoaches] = useState<{ id: string; full_name: string; email: string; phone?: string | null }[]>([]);
+  const [coachForm, setCoachForm] = useState({ fullName: "", email: "", phone: "", password: "" });
+  const [coachSaving, setCoachSaving] = useState(false);
+  const [coachError, setCoachError] = useState<string | null>(null);
+
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -67,9 +80,80 @@ export default function AdminDashboardPage() {
     : "";
 
   useEffect(() => {
+    const loadData = async () => {
+      // Check authentication first
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        console.error("Not authenticated:", authError);
+        setError("Please login to access the admin dashboard");
+        router.push("/login");
+        return;
+      }
+
+      // Centralized dashboard tournaments
+      const loadTournaments = async () => {
+        const nowIso = new Date().toISOString();
+        const { data: upcomingData, error: upcomingError } = await supabase
+          .from("tournaments")
+          .select("id,name,start_date,end_date,status")
+          .gte("start_date", nowIso)
+          .order("start_date", { ascending: true });
+        if (upcomingError) {
+          console.error("Error loading upcoming tournaments:", upcomingError);
+        }
+        
+        const { data: pastData, error: pastError } = await supabase
+          .from("tournaments")
+          .select("id,name,start_date,end_date,status")
+          .lt("start_date", nowIso)
+          .order("start_date", { ascending: false });
+        if (pastError) {
+          console.error("Error loading past tournaments:", pastError);
+        }
+        
+        setUpcoming(upcomingData || []);
+        setPast(pastData || []);
+      };
+      
+      const loadAdmins = async () => {
+        const { data, error } = await supabase
+          .from("admins")
+          .select("id, full_name, email, phone, role")
+          .order("full_name");
+        if (error) {
+          console.error("Error loading admins:", error);
+          setError(`Failed to load admins: ${error.message}`);
+        } else {
+          setAdmins((data as any) || []);
+        }
+      };
+      
+      const loadCoaches = async () => {
+        const { data, error } = await supabase
+          .from("coaches")
+          .select("id, full_name, email, phone")
+          .order("full_name");
+        if (error) {
+          console.error("Error loading coaches:", error);
+          setError(`Failed to load coaches: ${error.message}`);
+        } else {
+          setCoaches((data as any) || []);
+        }
+      };
+      
+      await Promise.all([
+        loadTournaments(),
+        loadAdmins(),
+        loadCoaches()
+      ]);
+    };
+    
+    loadData();
+
     if (tournamentId) {
       fetchTournamentDetails();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tournamentId]);
 
   const fetchTournamentDetails = async () => {
@@ -209,55 +293,368 @@ export default function AdminDashboardPage() {
     },
   ];
 
-  if (!tournamentId) {
-    return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-8 max-w-md w-full text-center">
-          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-            Tournament ID Missing
-          </h2>
-          <p className="text-gray-600 dark:text-gray-300 mb-4">
-            Please select a tournament to view the dashboard.
-          </p>
-          <button
-            onClick={() => router.push("/admin")}
-            className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700"
-          >
-            Go to Admin Home
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // Dashboard is always accessible - tournamentId is optional
+  // If tournamentId is provided, show detailed tournament view
+  // If not, show centralized dashboard with tabs only
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="w-12 h-12 animate-spin text-blue-600 mx-auto mb-4" />
-          <p className="text-gray-600 dark:text-gray-300">
-            Loading dashboard...
-          </p>
-        </div>
-      </div>
-    );
-  }
+  const addAdmin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAdminSaving(true);
+    setAdminError(null);
+    const res = await fetch("/api/admin/create-admin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fullName: adminForm.fullName,
+        email: adminForm.email,
+        phone: adminForm.phone || null,
+        password: adminForm.password || undefined,
+      }),
+    });
+    setAdminSaving(false);
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      setAdminError(j.message || "Failed to add admin");
+      return;
+    }
+    setAdminForm({ fullName: "", email: "", phone: "", password: "" });
+    const { data, error } = await supabase
+      .from("admins")
+      .select("id, full_name, email, phone, role")
+      .order("full_name");
+    if (!error) setAdmins((data as any) || []);
+  };
+
+  const addCoach = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCoachSaving(true);
+    setCoachError(null);
+    const res = await fetch("/api/admin/coaches", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fullName: coachForm.fullName,
+        email: coachForm.email,
+        phone: coachForm.phone || null,
+        password: coachForm.password,
+      }),
+    });
+    setCoachSaving(false);
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      setCoachError(j.message || "Failed to add coach");
+      return;
+    }
+    setCoachForm({ fullName: "", email: "", phone: "", password: "" });
+    const { data, error } = await supabase
+      .from("coaches")
+      .select("id, full_name, email, phone")
+      .order("full_name");
+    if (!error) setCoaches((data as any) || []);
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
+        {/* Page Header */}
+        <div className="mb-6">
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-            Tournament Dashboard
+            Admin Dashboard
           </h1>
           <p className="text-gray-600 dark:text-gray-300">
-            Manage your tournament setup and monitor progress
+            {tournamentId 
+              ? "Manage your tournament setup and monitor progress"
+              : "Manage tournaments, admins, and coaches"}
           </p>
         </div>
 
-        {/* Tournament Overview */}
+        {/* Error Message */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-red-700 dark:text-red-200 font-medium">Error</p>
+                <p className="text-red-600 dark:text-red-300 text-sm mt-1">{error}</p>
+                <p className="text-red-600 dark:text-red-300 text-xs mt-2">
+                  Tip: Make sure you've run the RLS policy fix SQL in Supabase. Check the browser console for more details.
+                </p>
+              </div>
+              <button onClick={() => setError(null)} className="text-red-600 dark:text-red-400">
+                ×
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Tabs */}
+        <div className="mb-6 flex gap-2">
+          <button
+            className={`px-4 py-2 rounded-md border ${activeTab === "tournaments" ? "bg-blue-600 text-white border-blue-600" : "bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 border-gray-300 dark:border-gray-700"}`}
+            onClick={() => setActiveTab("tournaments")}
+          >
+            Tournaments
+          </button>
+          <button
+            className={`px-4 py-2 rounded-md border ${activeTab === "admins" ? "bg-blue-600 text-white border-blue-600" : "bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 border-gray-300 dark:border-gray-700"}`}
+            onClick={() => setActiveTab("admins")}
+          >
+            Admins
+          </button>
+          <button
+            className={`px-4 py-2 rounded-md border ${activeTab === "coaches" ? "bg-blue-600 text-white border-blue-600" : "bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 border-gray-300 dark:border-gray-700"}`}
+            onClick={() => setActiveTab("coaches")}
+          >
+            Coaches
+          </button>
+        </div>
+
+        {activeTab === "tournaments" && (
+        /* Centralized Dashboard: Tournaments list */
+        <div className="mb-8">
+          <div className="mb-4 flex justify-end">
+            <button
+              onClick={() => router.push("/admin/setup/tournament-details")}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+            >
+              + Create New Tournament
+            </button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Upcoming Tournaments</h2>
+              </div>
+            <div className="space-y-3">
+              {upcoming.map((t) => (
+                <div key={t.id} className="flex items-center justify-between border rounded-md p-3">
+                  <div>
+                    <div className="font-medium text-gray-900 dark:text-white">{t.name}</div>
+                    <div className="text-xs text-gray-500">{new Date(t.start_date).toLocaleDateString()} - {new Date(t.end_date).toLocaleDateString()}</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      className="px-3 py-1 text-sm border rounded-md"
+                      onClick={() => router.push(`/admin/setup/tournament-details?tournamentId=${t.id}`)}
+                    >
+                      Manage
+                    </button>
+                    <button
+                      className="px-3 py-1 text-sm border rounded-md"
+                      onClick={() => router.push(`/admin/registration/roster-review?tournamentId=${t.id}`)}
+                    >
+                      Roster Review
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {upcoming.length === 0 && (
+                <p className="text-sm text-gray-500">No upcoming tournaments.</p>
+              )}
+            </div>
+          </div>
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Past Tournaments</h2>
+            </div>
+            <div className="space-y-3">
+              {past.map((t) => (
+                <div key={t.id} className="flex items-center justify-between border rounded-md p-3">
+                  <div>
+                    <div className="font-medium text-gray-900 dark:text:white">{t.name}</div>
+                    <div className="text-xs text-gray-500">{new Date(t.start_date).toLocaleDateString()} - {new Date(t.end_date).toLocaleDateString()}</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      className="px-3 py-1 text-sm border rounded-md"
+                      onClick={() => router.push(`/admin/setup/tournament-details?tournamentId=${t.id}`)}
+                    >
+                      Manage
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {past.length === 0 && (
+                <p className="text-sm text-gray-500">No past tournaments.</p>
+              )}
+            </div>
+          </div>
+          </div>
+        </div>
+        )}
+
+        {activeTab === "admins" && (
+          <div className="space-y-6 mb-8">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Add Admin</h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Admins are system administrators who manage the platform. They have full access to all features.
+              </p>
+              <form onSubmit={addAdmin} className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                <input
+                  className="border rounded-md px-3 py-2"
+                  placeholder="Full name"
+                  value={adminForm.fullName}
+                  onChange={(e) => setAdminForm((f) => ({ ...f, fullName: e.target.value }))}
+                  required
+                />
+                <input
+                  type="email"
+                  className="border rounded-md px-3 py-2"
+                  placeholder="Email"
+                  value={adminForm.email}
+                  onChange={(e) => setAdminForm((f) => ({ ...f, email: e.target.value }))}
+                  required
+                />
+                <input
+                  type="password"
+                  className="border rounded-md px-3 py-2"
+                  placeholder="Password (required)"
+                  value={adminForm.password}
+                  onChange={(e) => setAdminForm((f) => ({ ...f, password: e.target.value }))}
+                  required
+                />
+                <input
+                  className="border rounded-md px-3 py-2"
+                  placeholder="Phone (optional)"
+                  value={adminForm.phone}
+                  onChange={(e) => setAdminForm((f) => ({ ...f, phone: e.target.value }))}
+                />
+                <button type="submit" disabled={adminSaving} className="px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700">
+                  {adminSaving ? "Adding..." : "Add Admin"}
+                </button>
+              </form>
+              {adminError && <p className="text-sm text-red-600 mt-2">{adminError}</p>}
+            </div>
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden">
+              {admins.length === 0 ? (
+                <p className="p-4 text-gray-600">No admins yet.</p>
+              ) : (
+                <table className="w-full">
+                  <thead>
+                    <tr className="text-left text-sm text-gray-600 border-b">
+                      <th className="p-3">Name</th>
+                      <th className="p-3">Email</th>
+                      <th className="p-3">Phone</th>
+                      <th className="p-3">Role</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {admins.map((a) => (
+                      <tr key={a.id} className="border-b last:border-0">
+                        <td className="p-3">{a.full_name}</td>
+                        <td className="p-3">{a.email}</td>
+                        <td className="p-3">{a.phone || "-"}</td>
+                        <td className="p-3">
+                          <span className={`px-2 py-1 rounded text-xs ${a.role === 'super_admin' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'}`}>
+                            {a.role}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === "coaches" && (
+          <div className="space-y-6 mb-8">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Add Coach</h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Coaches are people who coach teams in tournaments. Admins create coach accounts here.
+                A user account is automatically created for each coach. Coaches will have a separate login and dashboard (to be implemented).
+              </p>
+              <form onSubmit={addCoach} className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                <input
+                  className="border rounded-md px-3 py-2"
+                  placeholder="Full name"
+                  value={coachForm.fullName}
+                  onChange={(e) => setCoachForm((f) => ({ ...f, fullName: e.target.value }))}
+                  required
+                />
+                <input
+                  type="email"
+                  className="border rounded-md px-3 py-2"
+                  placeholder="Email"
+                  value={coachForm.email}
+                  onChange={(e) => setCoachForm((f) => ({ ...f, email: e.target.value }))}
+                  required
+                />
+                <input
+                  type="password"
+                  className="border rounded-md px-3 py-2"
+                  placeholder="Password (required)"
+                  value={coachForm.password}
+                  onChange={(e) => setCoachForm((f) => ({ ...f, password: e.target.value }))}
+                  required
+                />
+                <input
+                  className="border rounded-md px-3 py-2"
+                  placeholder="Phone (optional)"
+                  value={coachForm.phone}
+                  onChange={(e) => setCoachForm((f) => ({ ...f, phone: e.target.value }))}
+                />
+                <button type="submit" disabled={coachSaving} className="px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700">
+                  {coachSaving ? "Adding..." : "Add Coach"}
+                </button>
+              </form>
+              {coachError && <p className="text-sm text-red-600 mt-2">{coachError}</p>}
+            </div>
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden">
+              {coaches.length === 0 ? (
+                <p className="p-4 text-gray-600">No coaches yet.</p>
+              ) : (
+                <table className="w-full">
+                  <thead>
+                    <tr className="text-left text-sm text-gray-600 border-b">
+                      <th className="p-3">Name</th>
+                      <th className="p-3">Email</th>
+                      <th className="p-3">Phone</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {coaches.map((c) => (
+                      <tr key={c.id} className="border-b last:border-0">
+                        <td className="p-3">{c.full_name}</td>
+                        <td className="p-3">{c.email}</td>
+                        <td className="p-3">{c.phone || "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Tournament-Specific Dashboard (only show if tournamentId is provided) */}
+        {tournamentId && (
+          <>
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="text-center">
+                  <Loader2 className="w-12 h-12 animate-spin text-blue-600 mx-auto mb-4" />
+                  <p className="text-gray-600 dark:text-gray-300">
+                    Loading tournament details...
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Header */}
+                <div className="mb-8">
+                  <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
+                    Tournament Dashboard
+                  </h1>
+                  <p className="text-gray-600 dark:text-gray-300">
+                    Manage your tournament setup and monitor progress
+                  </p>
+                </div>
+
+                {/* Tournament Overview */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 mb-6">
           <div className="flex items-start justify-between mb-6">
             <div>
@@ -517,6 +914,10 @@ export default function AdminDashboardPage() {
             })}
           </div>
         </div>
+              </>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

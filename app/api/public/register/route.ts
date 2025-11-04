@@ -1,12 +1,8 @@
-// Save this file at: app/api/public/register/route.ts
+import { NextRequest, NextResponse } from "next/server";
+import { getServiceSupabase } from "@/lib/supabaseClient";
 
-import { NextResponse } from "next/server";
-
-// Mock implementation for development
-// TODO: Replace with actual database implementation when ready
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
-    // Parse the incoming request body
     const body = await request.json();
     const { tournamentId, playerData, teamRosterData } = body;
 
@@ -35,34 +31,180 @@ export async function POST(request: Request) {
       );
     }
 
-    // Mock: Generate a unique team ID
-    // TODO: Replace with actual database insertion
-    const mockTeamId = `team-${Date.now()}-${Math.random()
-      .toString(36)
-      .substr(2, 9)}`;
+    const db = getServiceSupabase();
 
-    console.log("✅ Team Registration (Mock):", {
-      teamId: mockTeamId,
-      teamName,
-      tournamentId,
-      captain: {
-        name: playerData.fullName,
-        email: playerData.email,
-        contact: playerData.contactNumber,
-        gender: playerData.gender,
-        dob: playerData.dateOfBirth,
-      },
-      rosterCount: teamRosterData.rosterPlayers?.length || 0,
-      status: "Pending Approval",
-    });
+    // Verify tournament exists
+    const { data: tournament, error: tournamentError } = await db
+      .from("tournaments")
+      .select("id")
+      .eq("id", tournamentId)
+      .single();
+
+    if (tournamentError || !tournament) {
+      return NextResponse.json(
+        { message: "Tournament not found." },
+        { status: 404 }
+      );
+    }
+
+    // Get the player's auth user ID
+    const { data: player } = await db
+      .from("players")
+      .select("id, auth_user_id")
+      .eq("email", playerData.email)
+      .maybeSingle();
+
+    if (!player) {
+      return NextResponse.json(
+        { message: "Player not found. Please complete player registration first." },
+        { status: 400 }
+      );
+    }
+
+    // Create or get the team
+    let teamId: string;
+    const { data: existingTeam } = await db
+      .from("teams")
+      .select("id")
+      .eq("name", teamName)
+      .eq("tournament_id", tournamentId)
+      .maybeSingle();
+
+    if (existingTeam) {
+      teamId = existingTeam.id;
+    } else {
+      // Create new team
+      const { data: newTeam, error: teamError } = await db
+        .from("teams")
+        .insert({
+          name: teamName,
+          tournament_id: tournamentId,
+          captain_email: playerData.email,
+          captain_name: playerData.fullName,
+          captain_phone: playerData.contactNumber || null,
+          status: "pending",
+        })
+        .select("id")
+        .single();
+
+      if (teamError || !newTeam) {
+        throw new Error(teamError?.message || "Failed to create team");
+      }
+      teamId = newTeam.id;
+    }
+
+    // Add captain to team_members if not already added
+    const { data: existingMember } = await db
+      .from("team_members")
+      .select("id")
+      .eq("team_id", teamId)
+      .eq("player_id", player.id)
+      .eq("tournament_id", tournamentId)
+      .maybeSingle();
+
+    if (!existingMember) {
+      await db.from("team_members").insert({
+        team_id: teamId,
+        player_id: player.id,
+        tournament_id: tournamentId,
+      });
+    }
+
+    // Update player to be captain if they created the team
+    if (!existingTeam) {
+      await db
+        .from("players")
+        .update({ is_captain: true })
+        .eq("id", player.id);
+    }
+
+    // Handle roster players - create player records and add to team_members
+    // Note: rosterPlayers[0] is the captain, so we skip it
+    const otherPlayers = teamRosterData.rosterPlayers?.slice(1) || [];
+    
+    for (const rosterPlayerData of otherPlayers) {
+      if (rosterPlayerData && rosterPlayerData.fullName && rosterPlayerData.email) {
+        // Check if player already exists by email
+        const { data: existingPlayer } = await db
+          .from("players")
+          .select("id")
+          .eq("email", rosterPlayerData.email)
+          .maybeSingle();
+
+        let rosterPlayerId: string;
+
+        if (existingPlayer) {
+          // Update existing player with new details
+          const { data: updatedPlayer, error: updateError } = await db
+            .from("players")
+            .update({
+              full_name: rosterPlayerData.fullName,
+              contact_number: rosterPlayerData.contactNumber || null,
+              gender: rosterPlayerData.gender || null,
+              date_of_birth: rosterPlayerData.dateOfBirth || null,
+              tournament_id: tournamentId,
+              status: "Pending",
+              is_captain: false,
+            })
+            .eq("id", existingPlayer.id)
+            .select("id")
+            .single();
+
+          if (updateError || !updatedPlayer) {
+            console.warn("Failed to update existing player:", updateError);
+            continue;
+          }
+          rosterPlayerId = updatedPlayer.id;
+        } else {
+          // Create new player record with all details
+          const { data: newRosterPlayer, error: createError } = await db
+            .from("players")
+            .insert({
+              full_name: rosterPlayerData.fullName,
+              email: rosterPlayerData.email,
+              contact_number: rosterPlayerData.contactNumber || null,
+              gender: rosterPlayerData.gender || null,
+              date_of_birth: rosterPlayerData.dateOfBirth || null,
+              tournament_id: tournamentId,
+              status: "Pending",
+              is_captain: false,
+            })
+            .select("id")
+            .single();
+
+          if (createError || !newRosterPlayer) {
+            console.warn("Failed to create roster player:", createError);
+            continue;
+          }
+          rosterPlayerId = newRosterPlayer.id;
+        }
+
+        // Add to team_members if not already added
+        const { data: existingRosterMember } = await db
+          .from("team_members")
+          .select("id")
+          .eq("team_id", teamId)
+          .eq("player_id", rosterPlayerId)
+          .eq("tournament_id", tournamentId)
+          .maybeSingle();
+
+        if (!existingRosterMember) {
+          await db.from("team_members").insert({
+            team_id: teamId,
+            player_id: rosterPlayerId,
+            tournament_id: tournamentId,
+          });
+        }
+      }
+    }
 
     // Send a success response
     return NextResponse.json(
       {
         message: "Registration successful",
-        teamId: mockTeamId,
+        teamId: teamId,
         teamName,
-        status: "Pending Approval",
+        status: "pending",
       },
       { status: 201 }
     );

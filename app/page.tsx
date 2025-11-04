@@ -10,8 +10,12 @@ import { Zap, Users, Star } from "lucide-react";
 export default function HomePage() {
   const router = useRouter();
 
-  const handleAdminClick = () => {
-    router.push('/admin/setup/tournament-details');
+  const handleUpcomingClick = () => {
+    router.push('/public/upcoming');
+  };
+
+  const handleLoginClick = () => {
+    router.push('/login');
   };
 
   const handlePublicClick = () => {
@@ -47,10 +51,18 @@ export default function HomePage() {
             <Button
               size="lg"
               variant="outline"
-              onClick={handleAdminClick}
+              onClick={handleUpcomingClick}
               className="bg-white/90 text-blue-700 hover:bg-white font-bold text-lg py-6 px-8 rounded-full shadow-lg transition-transform transform hover:scale-105"
             >
-              Manage Tournament
+              Upcoming Tournaments
+            </Button>
+            <Button
+              size="lg"
+              variant="secondary"
+              onClick={handleLoginClick}
+              className="bg-white/90 text-blue-700 hover:bg-white font-bold text-lg py-6 px-8 rounded-full shadow-lg transition-transform transform hover:scale-105"
+            >
+              Login
             </Button>
           </div>
         </div>
@@ -138,10 +150,10 @@ export default function HomePage() {
           <div className="mt-12">
             <Button
               size="lg"
-              onClick={handleAdminClick}
+              onClick={handleUpcomingClick}
               className="bg-white text-blue-700 hover:bg-gray-100 font-bold text-lg py-6 px-10 rounded-full shadow-xl transition-transform transform hover:scale-105"
             >
-              Create New Tournament
+              Upcoming Tournaments
             </Button>
           </div>
         </div>
@@ -156,7 +168,7 @@ export default function HomePage() {
           <nav className="flex gap-6 mt-4 md:mt-0">
             <a href="/public/schedule" className="hover:text-white transition-colors">Schedule</a>
             <a href="/public/leaderboard" className="hover:text-white transition-colors">Leaderboard</a>
-            <a href="/admin/reports/dashboard" className="hover:text-white transition-colors">Admin Login</a>
+            <a href="/login" className="hover:text-white transition-colors">Admin Login</a>
           </nav>
         </div>
       </footer>

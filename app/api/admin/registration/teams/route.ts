@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServiceSupabase } from "@/lib/supabaseClient";
 
 interface Player {
   id: string;
@@ -35,176 +36,101 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    console.log(`Fetching teams for tournament: ${tournamentId}`);
+    const db = getServiceSupabase();
 
-    // TODO: Fetch teams from database
-    // const teams = await db.teams.findMany({
-    //   where: {
-    //     tournamentId,
-    //     ...(status && { status }),
-    //   },
-    //   include: {
-    //     players: true,
-    //   },
-    //   orderBy: {
-    //     submittedAt: 'desc',
-    //   },
-    // });
+    // Fetch teams for the tournament
+    let query = db
+      .from("teams")
+      .select("*")
+      .eq("tournament_id", tournamentId);
 
-    // Mock data
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    if (status) {
+      query = query.eq("status", status);
+    }
 
-    const mockTeams: Team[] = [
-      {
-        id: "team-1",
-        teamName: "Thunder Bolts",
-        captainName: "John Smith",
-        captainEmail: "john@thunderbolts.com",
-        captainPhone: "+1234567890",
-        tournamentId,
-        status: "pending",
-        submittedAt: "2024-11-01T10:30:00Z",
-        players: [
-          {
-            id: "p1",
-            fullName: "John Smith",
-            email: "john@example.com",
-            contactNumber: "+1234567890",
-            gender: "Male",
-            dateOfBirth: "1995-05-15",
-          },
-          {
-            id: "p2",
-            fullName: "Jane Doe",
-            email: "jane@example.com",
-            contactNumber: "+1234567891",
-            gender: "Female",
-            dateOfBirth: "1996-08-20",
-          },
-          {
-            id: "p3",
-            fullName: "Mike Johnson",
-            email: "mike@example.com",
-            contactNumber: "+1234567892",
-            gender: "Male",
-            dateOfBirth: "1994-03-10",
-          },
-          {
-            id: "p4",
-            fullName: "Sarah Williams",
-            email: "sarah@example.com",
-            contactNumber: "+1234567893",
-            gender: "Female",
-            dateOfBirth: "1997-11-25",
-          },
-          {
-            id: "p5",
-            fullName: "Tom Brown",
-            email: "tom@example.com",
-            contactNumber: "+1234567894",
-            gender: "Male",
-            dateOfBirth: "1995-07-08",
-          },
-          {
-            id: "p6",
-            fullName: "Emily Davis",
-            email: "emily@example.com",
-            contactNumber: "+1234567895",
-            gender: "Female",
-            dateOfBirth: "1996-12-30",
-          },
-          {
-            id: "p7",
-            fullName: "Chris Wilson",
-            email: "chris@example.com",
-            contactNumber: "+1234567896",
-            gender: "Male",
-            dateOfBirth: "1993-09-18",
-          },
-        ],
-      },
-      {
-        id: "team-2",
-        teamName: "Lightning Strike",
-        captainName: "Alice Johnson",
-        captainEmail: "alice@lightning.com",
-        captainPhone: "+1234567897",
-        tournamentId,
-        status: "approved",
-        submittedAt: "2024-10-28T14:20:00Z",
-        players: Array.from({ length: 8 }, (_, i) => ({
-          id: `p${i + 10}`,
-          fullName: `Player ${i + 1}`,
-          email: `player${i + 1}@lightning.com`,
-          contactNumber: `+123456789${i}`,
-          gender: i % 2 === 0 ? "Male" : "Female",
-          dateOfBirth: "1995-01-01",
-        })),
-      },
-      {
-        id: "team-3",
-        teamName: "Storm Chasers",
-        captainName: "Bob Williams",
-        captainEmail: "bob@stormchasers.com",
-        captainPhone: "+1234567898",
-        tournamentId,
-        status: "pending",
-        submittedAt: "2024-11-02T09:15:00Z",
-        players: Array.from({ length: 10 }, (_, i) => ({
-          id: `p${i + 20}`,
-          fullName: `Player ${i + 1}`,
-          email: `player${i + 1}@storm.com`,
-          contactNumber: `+123456789${i}`,
-          gender: i % 2 === 0 ? "Male" : "Female",
-          dateOfBirth: "1996-06-15",
-        })),
-      },
-      {
-        id: "team-4",
-        teamName: "Wind Runners",
-        captainName: "Carol Martinez",
-        captainEmail: "carol@windrunners.com",
-        captainPhone: "+1234567899",
-        tournamentId,
-        status: "rejected",
-        submittedAt: "2024-10-30T16:45:00Z",
-        rejectionReason:
-          "Incomplete roster - only 5 players submitted (minimum 7 required)",
-        players: Array.from({ length: 5 }, (_, i) => ({
-          id: `p${i + 30}`,
-          fullName: `Player ${i + 1}`,
-          email: `player${i + 1}@wind.com`,
-          contactNumber: `+123456789${i}`,
-          gender: i % 2 === 0 ? "Male" : "Female",
-          dateOfBirth: "1994-04-20",
-        })),
-      },
-      {
-        id: "team-5",
-        teamName: "Sky Warriors",
-        captainName: "David Chen",
-        captainEmail: "david@skywarriors.com",
-        captainPhone: "+1234567900",
-        tournamentId,
-        status: "pending",
-        submittedAt: "2024-11-03T11:00:00Z",
-        players: Array.from({ length: 9 }, (_, i) => ({
-          id: `p${i + 40}`,
-          fullName: `Player ${i + 1}`,
-          email: `player${i + 1}@sky.com`,
-          contactNumber: `+123456790${i}`,
-          gender: i % 2 === 0 ? "Male" : "Female",
-          dateOfBirth: "1995-08-10",
-        })),
-      },
-    ];
+    const { data: teams, error: teamsError } = await query.order("created_at", {
+      ascending: false,
+    });
 
-    // Apply status filter if provided
-    const filteredTeams = status
-      ? mockTeams.filter((team) => team.status === status)
-      : mockTeams;
+    if (teamsError) {
+      throw teamsError;
+    }
 
-    return NextResponse.json(filteredTeams);
+    if (!teams || teams.length === 0) {
+      return NextResponse.json([]);
+    }
+
+    // For each team, fetch the roster and players
+    const teamsWithPlayers: Team[] = await Promise.all(
+      teams.map(async (team) => {
+        // Get the roster submission time
+        const { data: roster } = await db
+          .from("team_rosters")
+          .select("submitted_at, player_ids")
+          .eq("team_id", team.id)
+          .eq("tournament_id", tournamentId)
+          .maybeSingle();
+
+        // Get players from team_members (or use player_ids from roster if available)
+        let playerIds: string[] = [];
+
+        if (roster && roster.player_ids && roster.player_ids.length > 0) {
+          playerIds = roster.player_ids;
+        } else {
+          // Fallback: get players from team_members
+          const { data: teamMembers } = await db
+            .from("team_members")
+            .select("player_id")
+            .eq("team_id", team.id)
+            .eq("tournament_id", tournamentId);
+
+          if (teamMembers) {
+            playerIds = teamMembers.map((tm) => tm.player_id);
+          }
+        }
+
+        // Fetch player details
+        let players: Player[] = [];
+        if (playerIds.length > 0) {
+          const { data: playersData } = await db
+            .from("players")
+            .select("id, full_name, email, contact_number, gender, date_of_birth")
+            .in("id", playerIds);
+
+          if (playersData) {
+            players = playersData.map((p) => ({
+              id: p.id,
+              fullName: p.full_name || "",
+              email: p.email || "",
+              contactNumber: p.contact_number || "",
+              gender: p.gender || "",
+              dateOfBirth: p.date_of_birth
+                ? new Date(p.date_of_birth).toISOString().split("T")[0]
+                : "",
+            }));
+          }
+        }
+
+        return {
+          id: team.id,
+          teamName: team.name,
+          captainName: team.captain_name,
+          captainEmail: team.captain_email,
+          captainPhone: team.captain_phone || "",
+          tournamentId: team.tournament_id,
+          status: team.status as "pending" | "approved" | "rejected",
+          submittedAt: roster?.submitted_at
+            ? new Date(roster.submitted_at).toISOString()
+            : team.created_at
+            ? new Date(team.created_at).toISOString()
+            : new Date().toISOString(),
+          players,
+          rejectionReason: team.rejection_reason || undefined,
+        };
+      })
+    );
+
+    return NextResponse.json(teamsWithPlayers);
   } catch (error) {
     console.error("Error fetching teams:", error);
     return NextResponse.json(
