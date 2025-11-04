@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, Suspense, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,11 +14,25 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Plus, Trash2, AlertCircle, X } from "lucide-react";
+import {
+  Loader2,
+  Plus,
+  Trash2,
+  AlertCircle,
+  X,
+  UserSearch,
+  UserPlus,
+  UserX,
+} from "lucide-react";
 
-// 1. Define the structure for a Role
+// 1. Define Data Structures
 interface ProgramRole {
-  id: string; // Use a unique ID for React keys
+  id: string;
+  name: string;
+}
+
+interface Player {
+  id: string;
   name: string;
 }
 
@@ -28,62 +42,79 @@ function ManageRolesPage() {
   const searchParams = useSearchParams();
   const programId = searchParams.get("programId");
 
+  // State for Roles & Schedules
   const [roles, setRoles] = useState<ProgramRole[]>([
-    // Default roles
     { id: "default-1", name: "Coach" },
     { id: "default-2", name: "Player" },
     { id: "default-3", name: "Program Manager" },
   ]);
   const [newRoleName, setNewRoleName] = useState("");
   const [scheduleNotes, setScheduleNotes] = useState("");
-  
+
+  // State for Roster Management
+  const [roster, setRoster] = useState<Player[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Player[]>([]);
+  const [isSearching, startSearchTransition] = useTransition();
+  const [rosterError, setRosterError] = useState<string | null>(null);
+
+  // General Page State
   const [programName, setProgramName] = useState("Loading...");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 3. Fetch existing program data (name and roles)
-  useEffect(() => {
+  // 3. Main Data Fetch (Program Details + Roster)
+  const fetchProgramData = async () => {
     if (!programId) {
-      setError("No program ID provided. Please go back.");
+      setError("No program ID provided.");
       setIsLoading(false);
       return;
     }
 
-    const fetchProgramData = async () => {
-      setIsLoading(true);
-      try {
-        // Use the GET route to retrieve program settings
-        const response = await fetch(
-          `/api/admin/coaching/program?programId=${programId}`
-        );
-        if (!response.ok) {
-          throw new Error("Failed to fetch program data.");
-        }
-        const data = await response.json();
-        
-        setProgramName(data.name);
-        if (data.roles && data.roles.length > 0) {
-          setRoles(data.roles.map((role: string | { name: string }, index: number) => ({
-            id: `role-${index}`,
-            name: typeof role === 'string' ? role : role.name,
-          })));
-        }
-        
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "An error occurred");
-      } finally {
-        setIsLoading(false);
-      }
-    };
+    setIsLoading(true);
+    try {
+      // Fetch program details (roles, notes, etc.)
+      const programRes = await fetch(
+        `/api/admin/coaching/program?programId=${programId}`
+      );
+      if (!programRes.ok) throw new Error("Failed to fetch program data.");
+      const programData = await programRes.json();
 
+      setProgramName(programData.name);
+      if (programData.roles && programData.roles.length > 0) {
+        setRoles(
+          programData.roles.map((r: string, i: number) => ({
+            id: `role-${i}`,
+            name: r,
+          }))
+        );
+      }
+      setScheduleNotes(programData.scheduleNotes || "");
+
+      // Fetch program roster
+      // --- THIS API (roster) DOES NOT EXIST YET ---
+      const rosterRes = await fetch(
+        `/api/admin/coaching/roster?programId=${programId}`
+      );
+      if (!rosterRes.ok) throw new Error("Failed to fetch program roster.");
+      const rosterData: Player[] = await rosterRes.json();
+      setRoster(rosterData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An error occurred");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Run the main fetch on load
+  useEffect(() => {
     fetchProgramData();
   }, [programId]);
 
-  // 4. Handlers for adding/removing roles
+  // 4. Handlers for Roles
   const handleAddRole = () => {
     if (newRoleName.trim() === "") return;
-    
     setRoles((prev) => [
       ...prev,
       { id: `new-${Date.now()}`, name: newRoleName.trim() },
@@ -95,44 +126,112 @@ function ManageRolesPage() {
     setRoles((prev) => prev.filter((role) => role.id !== id));
   };
 
-  // 5. Handle saving all settings
+  // 5. Handlers for Roster
+  
+  // Search for players
+  useEffect(() => {
+    if (searchQuery.trim().length < 2) {
+      setSearchResults([]);
+      return;
+    }
+
+    startSearchTransition(async () => {
+      try {
+        // --- THIS API (players) DOES NOT EXIST YET ---
+        const response = await fetch(`/api/players?search=${searchQuery}`);
+        if (response.ok) {
+          const data: Player[] = await response.json();
+          // Filter out players already on the roster
+          setSearchResults(data.filter((p) => !roster.some((r) => r.id === p.id)));
+        }
+      } catch (err) {
+        console.error("Failed to search players:", err);
+      }
+    });
+  }, [searchQuery, roster]);
+
+  // Add a player to the roster
+  const handleAddPlayer = async (player: Player) => {
+    setRosterError(null);
+    try {
+      // --- THIS API (roster) DOES NOT EXIST YET ---
+      const response = await fetch("/api/admin/coaching/roster", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ programId, playerId: player.id, action: "add" }),
+      });
+      if (!response.ok) throw new Error("Failed to add player.");
+
+      setRoster((prev) => [...prev, player]);
+      setSearchQuery("");
+      setSearchResults([]);
+    } catch (err) {
+      setRosterError(
+        err instanceof Error ? err.message : "An error occurred"
+      );
+    }
+  };
+
+  // Remove a player from the roster
+  const handleRemovePlayer = async (playerId: string) => {
+    setRosterError(null);
+    try {
+      // --- THIS API (roster) DOES NOT EXIST YET ---
+      const response = await fetch("/api/admin/coaching/roster", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ programId, playerId, action: "remove" }),
+      });
+      if (!response.ok) throw new Error("Failed to remove player.");
+
+      setRoster((prev) => prev.filter((p) => p.id !== playerId));
+    } catch (err) {
+      setRosterError(
+        err instanceof Error ? err.message : "An error occurred"
+      );
+    }
+  };
+
+  // 6. Handle saving general settings (Roles & Schedules)
   const handleSaveSettings = async (redirect: boolean = false) => {
     setError(null);
     setIsSaving(true);
-    
     try {
+      // This POSTs to the API route we already updated
       const response = await fetch("/api/admin/coaching/program", {
-        method: "POST",
+        method: "POST", 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           programId: programId,
-          roles: roles.map(r => r.name),
+          roles: roles.map((r) => r.name), // Send just an array of names
           scheduleNotes: scheduleNotes,
         }),
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to save settings");
-      }
       
+      if (!response.ok) {
+         const errorData = await response.json();
+         throw new Error(errorData.message || "Failed to save settings");
+      }
+
       if (redirect) {
+        // Redirect to the next step: Session Scheduler
         router.push(
           `/admin/coaching-management/training/session-scheduler?programId=${programId}`
         );
       } else {
         alert("Settings saved!");
       }
-
     } catch (err) {
-      setError(err instanceof Error ? err.message : "An unexpected error occurred");
+      setError(
+        err instanceof Error ? err.message : "An unexpected error occurred"
+      );
     } finally {
       setIsSaving(false);
     }
   };
 
-  // 6. Render UI
-  if (isLoading) {
+  // 7. Render UI
+  if (isLoading && !programName) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
@@ -149,7 +248,7 @@ function ManageRolesPage() {
           <p className="text-lg text-blue-700 font-medium">{programName}</p>
         </div>
 
-        {/* Error Message */}
+        {/* General Error Message */}
         {error && (
           <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-md flex items-center gap-3">
             <AlertCircle className="h-5 w-5" />
@@ -157,7 +256,7 @@ function ManageRolesPage() {
           </div>
         )}
 
-        {/* Card 1: Define Roles */}
+        {/* --- Card 1: Define Roles --- */}
         <Card>
           <CardHeader>
             <CardTitle>Define Program Roles</CardTitle>
@@ -172,7 +271,7 @@ function ManageRolesPage() {
                 placeholder="Enter new role name"
                 value={newRoleName}
                 onChange={(e) => setNewRoleName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleAddRole()}
+                onKeyDown={(e) => e.key === "Enter" && handleAddRole()}
               />
               <Button onClick={handleAddRole}>
                 <Plus className="h-4 w-4 mr-2" /> Add Role
@@ -205,7 +304,7 @@ function ManageRolesPage() {
           </CardContent>
         </Card>
 
-        {/* Card 2: Manage Schedules */}
+        {/* --- Card 2: Manage Schedules --- */}
         <Card>
           <CardHeader>
             <CardTitle>Manage Program Manager Schedules</CardTitle>
@@ -225,6 +324,74 @@ function ManageRolesPage() {
           </CardContent>
         </Card>
 
+        {/* --- Card 3: NEW Roster Management --- */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Create Team Roster</CardTitle>
+            <CardDescription>
+              Add players to this coaching program.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {rosterError && (
+              <div className="p-3 bg-red-50 text-red-700 rounded-md text-sm">
+                {rosterError}
+              </div>
+            )}
+            
+            {/* Search Box */}
+            <div>
+              <Label htmlFor="playerSearch">Search for Players to Add</Label>
+              <div className="relative">
+                <Input
+                  id="playerSearch"
+                  placeholder="Type a player's name..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+                <UserSearch className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              </div>
+              {/* Search Results */}
+              <div className="mt-2 space-y-2 max-h-48 overflow-y-auto">
+                {isSearching && <p className="text-sm text-gray-500 mt-1">Searching...</p>}
+                {searchResults.map((player) => (
+                  <div key={player.id} className="flex justify-between items-center p-2 bg-gray-100 rounded">
+                    <span>{player.name}</span>
+                    <Button size="sm" variant="ghost" onClick={() => handleAddPlayer(player)}>
+                      <UserPlus className="h-4 w-4 mr-2" /> Add
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Current Roster */}
+            <div>
+              <Label>Current Program Roster ({roster.length} Players)</Label>
+              <div className="mt-2 space-y-2 p-3 border rounded-md bg-gray-50 max-h-72 overflow-y-auto">
+                {isLoading ? (
+                  <div className="flex justify-center items-center h-24">
+                    <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+                  </div>
+                ) : roster.length === 0 ? (
+                  <p className="text-sm text-gray-500 text-center py-4">
+                    No players have been added to this roster yet.
+                  </p>
+                ) : (
+                  roster.map((player) => (
+                    <div key={player.id} className="flex justify-between items-center p-3 bg-white shadow-sm rounded border">
+                      <span className="font-medium">{player.name}</span>
+                      <Button size="sm" variant="ghost" className="text-red-600 hover:text-red-700" onClick={() => handleRemovePlayer(player.id)}>
+                        <UserX className="h-4 w-4 mr-2" /> Remove
+                      </Button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Footer Buttons */}
         <div className="flex justify-between items-center">
           <Button
@@ -240,21 +407,13 @@ function ManageRolesPage() {
               onClick={() => handleSaveSettings(false)}
               disabled={isSaving}
             >
-              {isSaving ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                "Save"
-              )}
+              {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Settings"}
             </Button>
             <Button
               onClick={() => handleSaveSettings(true)}
               disabled={isSaving}
             >
-              {isSaving ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                "Save & Next: Schedule Sessions"
-              )}
+              {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Next: Schedule Sessions"}
             </Button>
           </div>
         </div>
@@ -263,7 +422,7 @@ function ManageRolesPage() {
   );
 }
 
-// 7. Export with Suspense wrapper
+// 8. Export with Suspense wrapper
 export default function ManageRolesPageWrapper() {
   return (
     <Suspense fallback={
