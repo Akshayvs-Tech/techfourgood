@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,6 +13,14 @@ import {
 } from "lucide-react";
 
 export default function RegistrationConfirmationPage() {
+  return (
+    <Suspense fallback={<div className="p-6">Loading...</div>}>
+      <RegistrationConfirmationInner />
+    </Suspense>
+  );
+}
+
+function RegistrationConfirmationInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [countdown, setCountdown] = useState(10);

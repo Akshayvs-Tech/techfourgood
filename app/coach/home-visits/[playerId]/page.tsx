@@ -38,7 +38,7 @@ export default function PlayerHomeVisits() {
     try {
       await fetch(`/api/coach/players/${playerId}/extra`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+        headers: { ...(await authHeaders()), 'Content-Type': 'application/json' } as HeadersInit,
         body: JSON.stringify({ address, otherInfo: safeJson(otherInfo), coachId: null })
       });
     } finally {
@@ -53,7 +53,7 @@ export default function PlayerHomeVisits() {
     try {
       await fetch(`/api/coach/players/${playerId}/visits`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+        headers: { ...(await authHeaders()), 'Content-Type': 'application/json' } as HeadersInit,
         body: JSON.stringify({ coachId: null, visitDate, notes })
       });
       setVisitDate('');

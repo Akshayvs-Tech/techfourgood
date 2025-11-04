@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabaseClient";
@@ -34,6 +34,14 @@ interface ExportOption {
 }
 
 export default function DataExportPage() {
+  return (
+    <Suspense fallback={<div className="p-6">Loading...</div>}>
+      <DataExportInner />
+    </Suspense>
+  );
+}
+
+function DataExportInner() {
   const searchParams = useSearchParams();
   const tournamentId = searchParams.get("tournamentId");
 

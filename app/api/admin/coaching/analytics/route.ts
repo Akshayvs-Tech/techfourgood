@@ -98,7 +98,7 @@ export async function GET(request: NextRequest) {
 
     const totalSessions = (sessions || []).length;
     const totalPlayers = playerData.length;
-    const totalAttended = playerData.reduce((sum, p) => sum + p.attendanceCount, 0);
+    const totalAttended = playerData.reduce((sum: number, p: any) => sum + (p.attendanceCount || 0), 0);
     const overallAttendanceRate = (totalPlayers > 0 && totalSessions > 0) ? (totalAttended / (totalPlayers * totalSessions)) : 0;
 
     // Fill per-player attendance rate now that totalSessions is known
@@ -108,7 +108,7 @@ export async function GET(request: NextRequest) {
 
     const assessedPlayers = playerData.filter((p: any) => p.assessmentsCount > 0);
     const overallAverageScore = assessedPlayers.length > 0
-      ? assessedPlayers.reduce((sum: number, p: any) => sum + p.averageScore, 0) / assessedPlayers.length
+      ? assessedPlayers.reduce((sum: number, p: any) => sum + (p.averageScore || 0), 0) / assessedPlayers.length
       : 0;
 
     // Session attendance summary time series

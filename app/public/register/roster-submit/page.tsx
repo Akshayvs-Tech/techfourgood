@@ -1,6 +1,7 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { Suspense, useState, useEffect, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+export const dynamic = 'force-dynamic';
 import { IPlayer, IRoster } from "@/lib/types";
 
 interface SelectedPlayer extends IPlayer {
@@ -8,6 +9,14 @@ interface SelectedPlayer extends IPlayer {
 }
 
 export default function RosterSubmitPage() {
+  return (
+    <Suspense fallback={<div className="p-6">Loading...</div>}>
+      <RosterSubmitInner />
+    </Suspense>
+  );
+}
+
+function RosterSubmitInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Use default tournament if not provided in URL

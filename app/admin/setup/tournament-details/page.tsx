@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -17,6 +17,14 @@ interface TournamentFormData {
 }
 
 export default function TournamentDetailsPage() {
+  return (
+    <Suspense fallback={<div className="p-6">Loading...</div>}>
+      <TournamentDetailsPageInner />
+    </Suspense>
+  );
+}
+
+function TournamentDetailsPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tournamentId = searchParams.get("tournamentId");

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
 
@@ -33,6 +33,14 @@ const DEFAULT_CONFIG: SpiritConfigData = {
 };
 
 export default function SpiritScoreConfig() {
+  return (
+    <Suspense fallback={<div className="p-6">Loading...</div>}>
+      <SpiritConfigInner />
+    </Suspense>
+  );
+}
+
+function SpiritConfigInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tournamentId = searchParams.get("tournamentId");
