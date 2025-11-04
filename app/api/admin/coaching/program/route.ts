@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, NextRequest } from "next/server";
 import { Pool } from "pg";
 
 // 1. Initialize the database connection pool
@@ -6,60 +6,111 @@ const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
 });
 
-// 2. Define the POST handler (to create a new program)
-export async function POST(request: Request) {
+// 2. NEW: GET handler (to fetch program details)
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  const programId = searchParams.get("programId");
+
+  if (!programId) {
+    return NextResponse.json(
+      { message: "Missing programId query parameter" },
+      { status: 400 }
+    );
+  }
+
   const client = await pool.connect();
   try {
-    // 3. Parse the request body
-    const body = await request.json();
-    const { name, startDate, isActive } = body;
+    const result = await client.query(
+      "SELECT id, name, start_date, is_active, roles, schedule_notes FROM programs WHERE id = $1",
+      [programId]
+    );
 
-    // 4. Validate the incoming data
-    if (!name || !startDate) {
+    if (result.rows.length === 0) {
       return NextResponse.json(
-        { message: "Missing required fields: name and startDate" },
-        { status: 400 }
+        { message: "Program not found" },
+        { status: 404 }
       );
     }
 
-    // 5. Start a transaction
-    await client.query("BEGIN");
+    // Convert keys to camelCase
+    const program = {
+      id: result.rows[0].id,
+      name: result.rows[0].name,
+      startDate: result.rows[0].start_date,
+      isActive: result.rows[0].is_active,
+      roles: result.rows[0].roles || [],
+      scheduleNotes: result.rows[0].schedule_notes || "",
+    };
 
-    // 6. Execute the SQL query to insert the new program
-    const sqlQuery = `
-      INSERT INTO programs (name, start_date, is_active)
-      VALUES ($1, $2, $3)
-      RETURNING id, name, start_date, is_active; 
-    `;
-    
-    const result = await client.query(sqlQuery, [
-      name,
-      startDate,
-      isActive ?? true,
-    ]);
-    
-    const newProgram = result.rows[0];
-
-    // 7. Commit the transaction
-    await client.query("COMMIT");
-
-    // 8. Return the newly created program
-    return NextResponse.json(newProgram, { status: 201 });
-
+    return NextResponse.json(program);
   } catch (error) {
-    // 9. If an error occurs, roll back the transaction
-    await client.query("ROLLBACK");
-    
-    console.error("Failed to create coaching program:", error);
+    console.error("Failed to fetch program:", error);
     return NextResponse.json(
       { message: "Internal server error" },
       { status: 500 }
     );
   } finally {
-    // 10. Always release the client back to the pool
     client.release();
   }
 }
 
-// TODO: Add a GET handler to retrieve programs
-// export async function GET(request: Request) { ... }
+// 3. UPDATED: POST handler (to create OR update a program)
+export async function POST(request: Request) {
+  const client = await pool.connect();
+  try {
+    const body = await request.json();
+    const { programId, name, startDate, isActive, roles, scheduleNotes } = body;
+
+    await client.query("BEGIN");
+
+    let savedProgram;
+
+    if (programId) {
+      // --- UPDATE Logic ---
+      const updateQuery = `
+        UPDATE programs
+        SET 
+          roles = $1,
+          schedule_notes = $2
+        WHERE id = $3
+        RETURNING *; 
+      `;
+      const result = await client.query(updateQuery, [
+        roles,
+        scheduleNotes,
+        programId,
+      ]);
+      savedProgram = result.rows[0];
+    } else {
+      // --- CREATE Logic ---
+      if (!name || !startDate) {
+        throw new Error("Missing required fields: name and startDate");
+      }
+      
+      const createQuery = `
+        INSERT INTO programs (name, start_date, is_active)
+        VALUES ($1, $2, $3)
+        RETURNING *;
+      `;
+      const result = await client.query(createQuery, [
+        name,
+        startDate,
+        isActive ?? true,
+      ]);
+      savedProgram = result.rows[0];
+    }
+
+    await client.query("COMMIT");
+
+    return NextResponse.json(savedProgram, { status: 200 });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Failed to save program:", error);
+    return NextResponse.json(
+      { message: "Internal server error" },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
