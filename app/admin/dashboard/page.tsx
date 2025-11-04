@@ -57,7 +57,7 @@ export default function AdminDashboardPage() {
   const searchParams = useSearchParams();
   const tournamentId = searchParams.get("tournamentId");
 
-  const [activeTab, setActiveTab] = useState<"tournaments" | "admins" | "coaches">("tournaments");
+  const [activeTab, setActiveTab] = useState<"tournaments" | "admins" | "coaches" | "coaching">("tournaments");
   const [upcoming, setUpcoming] = useState<any[]>([]);
   const [past, setPast] = useState<any[]>([]);
   const [admins, setAdmins] = useState<{ id: string; full_name: string; email: string; phone?: string | null; role: string }[]>([]);
@@ -68,6 +68,10 @@ export default function AdminDashboardPage() {
   const [coachForm, setCoachForm] = useState({ fullName: "", email: "", phone: "", password: "" });
   const [coachSaving, setCoachSaving] = useState(false);
   const [coachError, setCoachError] = useState<string | null>(null);
+  const [programs, setPrograms] = useState<{ id: string; name: string }[]>([]);
+  const [selectedProgramId, setSelectedProgramId] = useState<string>("");
+  const [upcomingSessions, setUpcomingSessions] = useState<{ id: string; program_id: string; date: string; location: string; type: string }[]>([]);
+  const [pastSessions, setPastSessions] = useState<{ id: string; program_id: string; date: string; location: string; type: string }[]>([]);
 
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -141,10 +145,39 @@ export default function AdminDashboardPage() {
         }
       };
       
+      const loadPrograms = async () => {
+        const { data, error } = await supabase
+          .from("programs")
+          .select("id,name")
+          .order("name");
+        if (error) {
+          console.error("Error loading programs:", error);
+        } else {
+          setPrograms((data as any) || []);
+        }
+      };
+
+      const loadSessions = async () => {
+        const nowIso = new Date().toISOString();
+        const { data, error } = await supabase
+          .from("sessions")
+          .select("id, program_id, date, location, type")
+          .order("date", { ascending: true });
+        if (error) {
+          console.error("Error loading sessions:", error);
+          return;
+        }
+        const all = (data as any) || [];
+        setUpcomingSessions(all.filter((s: any) => s.date >= nowIso));
+        setPastSessions(all.filter((s: any) => s.date < nowIso).reverse());
+      };
+
       await Promise.all([
         loadTournaments(),
         loadAdmins(),
-        loadCoaches()
+        loadCoaches(),
+        loadPrograms(),
+        loadSessions(),
       ]);
     };
     
@@ -407,6 +440,12 @@ export default function AdminDashboardPage() {
           >
             Coaches
           </button>
+          <button
+            className={`px-4 py-2 rounded-md border ${activeTab === "coaching" ? "bg-blue-600 text-white border-blue-600" : "bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 border-gray-300 dark:border-gray-700"}`}
+            onClick={() => setActiveTab("coaching")}
+          >
+            Coaching Sessions
+          </button>
         </div>
 
         {activeTab === "tournaments" && (
@@ -555,6 +594,109 @@ export default function AdminDashboardPage() {
                   </tbody>
                 </table>
               )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === "coaching" && (
+          <div className="space-y-6 mb-8">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+              <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+                <div className="flex-1">
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Coaching Sessions</h2>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">View upcoming and past sessions. Create and manage programs and sessions.</p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => supabase.auth.getUser().then(() => window.location.assign("/admin/coaching-management/program-setup/create-program"))}
+                    className="px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700"
+                  >
+                    + Create Program
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Select Program (for managing sessions)</label>
+                  <select
+                    className="w-full border rounded-md px-3 py-2 bg-white dark:bg-gray-900"
+                    value={selectedProgramId}
+                    onChange={(e) => setSelectedProgramId(e.target.value)}
+                  >
+                    <option value="">— Choose a program —</option>
+                    {programs.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex gap-2 items-end">
+                  <button
+                    disabled={!selectedProgramId}
+                    onClick={() => selectedProgramId && window.location.assign(`/admin/coaching-management/program-setup/manage-roles?programId=${selectedProgramId}`)}
+                    className={`px-4 py-2 rounded-md border ${selectedProgramId ? "bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700" : "opacity-50 cursor-not-allowed"}`}
+                  >
+                    Manage Roles
+                  </button>
+                  <button
+                    disabled={!selectedProgramId}
+                    onClick={() => selectedProgramId && window.location.assign(`/admin/coaching-management/training/session-scheduler?programId=${selectedProgramId}`)}
+                    className={`px-4 py-2 rounded-md ${selectedProgramId ? "bg-blue-600 text-white hover:bg-blue-700" : "bg-blue-600/50 text-white cursor-not-allowed"}`}
+                  >
+                    Open Scheduler
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+                <h3 className="text-md font-semibold text-gray-900 dark:text-white mb-4">Upcoming Sessions</h3>
+                <div className="space-y-3">
+                  {upcomingSessions.length === 0 && (
+                    <p className="text-sm text-gray-500">No upcoming sessions.</p>
+                  )}
+                  {upcomingSessions.map((s) => (
+                    <div key={s.id} className="flex items-center justify-between border rounded-md p-3">
+                      <div>
+                        <div className="font-medium text-gray-900 dark:text-white">{new Date(s.date).toLocaleString()}</div>
+                        <div className="text-xs text-gray-500">{s.location} • {s.type}</div>
+                        <div className="text-xs text-gray-500">{programs.find((p) => p.id === s.program_id)?.name || "Program"}</div>
+                      </div>
+                      <button
+                        className="px-3 py-1 text-sm border rounded-md"
+                        onClick={() => window.location.assign(`/admin/coaching-management/training/manage-attendance?programId=${s.program_id}`)}
+                      >
+                        Attendance
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+                <h3 className="text-md font-semibold text-gray-900 dark:text-white mb-4">Past Sessions</h3>
+                <div className="space-y-3">
+                  {pastSessions.length === 0 && (
+                    <p className="text-sm text-gray-500">No past sessions.</p>
+                  )}
+                  {pastSessions.map((s) => (
+                    <div key={s.id} className="flex items-center justify-between border rounded-md p-3">
+                      <div>
+                        <div className="font-medium text-gray-900 dark:text-white">{new Date(s.date).toLocaleString()}</div>
+                        <div className="text-xs text-gray-500">{s.location} • {s.type}</div>
+                        <div className="text-xs text-gray-500">{programs.find((p) => p.id === s.program_id)?.name || "Program"}</div>
+                      </div>
+                      <button
+                        className="px-3 py-1 text-sm border rounded-md"
+                        onClick={() => window.location.assign(`/admin/coaching-management/training/manage-attendance?programId=${s.program_id}`)}
+                      >
+                        Attendance
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         )}
