@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 interface FormField {
@@ -16,6 +16,14 @@ interface FormSetupData {
 }
 
 export default function FormsSetupPage() {
+  return (
+    <Suspense fallback={<div className="p-6">Loading...</div>}>
+      <FormsSetupInner />
+    </Suspense>
+  );
+}
+
+function FormsSetupInner() {
   const router = useRouter();
 
   

@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
@@ -28,6 +28,14 @@ interface TeamRosterData {
 }
 
 export default function RegisterPage() {
+  return (
+    <Suspense fallback={<div className="p-6">Loading...</div>}>
+      <RegisterPageInner />
+    </Suspense>
+  );
+}
+
+function RegisterPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Use default tournament if not provided in URL

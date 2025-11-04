@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import {
@@ -58,6 +58,14 @@ interface ScheduleFilters {
 }
 
 export default function PublicSchedulePage() {
+  return (
+    <Suspense fallback={<div className="p-6">Loading...</div>}>
+      <PublicScheduleInner />
+    </Suspense>
+  );
+}
+
+function PublicScheduleInner() {
   const searchParams = useSearchParams();
   const tournamentId = searchParams.get('tournamentId') || '';
 

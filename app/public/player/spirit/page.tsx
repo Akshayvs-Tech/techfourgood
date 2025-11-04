@@ -1,11 +1,19 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
 type Metric = { key: string; label: string; min?: number; max?: number };
 
 export default function PlayerSpiritFormPage() {
+  return (
+    <Suspense fallback={<div className="p-6">Loading...</div>}>
+      <PlayerSpiritFormInner />
+    </Suspense>
+  );
+}
+
+function PlayerSpiritFormInner() {
   const search = useSearchParams();
   const router = useRouter();
   const matchId = search.get('matchId') || '';

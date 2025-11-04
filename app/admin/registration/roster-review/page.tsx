@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Loader2,
@@ -55,6 +55,14 @@ interface Tournament {
 }
 
 export default function RosterReviewPage() {
+  return (
+    <Suspense fallback={<div className="p-6">Loading...</div>}>
+      <RosterReviewInner />
+    </Suspense>
+  );
+}
+
+function RosterReviewInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tournamentId = searchParams.get("tournamentId");

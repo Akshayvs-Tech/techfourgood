@@ -1,9 +1,17 @@
 "use client";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
 export default function AdminSpiritScoresPage() {
+  return (
+    <Suspense fallback={<div className="p-6">Loading...</div>}>
+      <AdminSpiritScoresInner />
+    </Suspense>
+  );
+}
+
+function AdminSpiritScoresInner() {
   const search = useSearchParams();
   const tournamentId = search.get("tournamentId") || "";
   const [loading, setLoading] = useState(true);
@@ -30,13 +38,13 @@ export default function AdminSpiritScoresPage() {
           .select('match_id, scoring_team_id, scored_player_id, total, players:scored_player_id(full_name)')
           .in('match_id', matchIds) : ({ data: [] } as any);
 
-        setTeamRows((teamScores||[]).map(s=> ({
+        setTeamRows(((teamScores||[]) as any[]).map((s:any)=> ({
           matchId: s.match_id,
           scoringTeam: teamMap.get(s.scoring_team_id) || s.scoring_team_id,
           total: s.total,
         })));
 
-        setPlayerRows((playerScores||[]).map(s=> ({
+        setPlayerRows(((playerScores||[]) as any[]).map((s:any)=> ({
           matchId: s.match_id,
           scoringTeam: teamMap.get(s.scoring_team_id) || s.scoring_team_id,
           player: s.players?.full_name || s.scored_player_id,

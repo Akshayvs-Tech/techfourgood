@@ -68,13 +68,13 @@ export async function GET(request: NextRequest) {
       matchNumber: m.match_number || 0,
       round: m.round || 0,
       pool: m.pool || undefined,
-      team1: teamById.get(m.team1_id) || "TBD",
-      team2: teamById.get(m.team2_id) || "TBD",
+      team1: (teamById.get(m.team1_id) as string) || "TBD",
+      team2: (teamById.get(m.team2_id) as string) || "TBD",
       scheduledDate: m.scheduled_date || "",
       scheduledTime: m.scheduled_time || "",
       field: m.field || "",
       duration: m.duration || 75,
-      status: (m.status as any) || "scheduled",
+      status: ((m.status as any) || "scheduled") as PublicMatch["status"],
       score: m.score1 != null || m.score2 != null ? { team1Score: m.score1 || 0, team2Score: m.score2 || 0 } : undefined,
     }));
 
@@ -101,15 +101,16 @@ export async function GET(request: NextRequest) {
     const uniqueTeams = [...new Set(matches.flatMap((m) => [m.team1, m.team2]))].sort();
 
     // If a specific tournament was requested, include it; otherwise omit
-    const tournamentPayload = tournamentId ? tById.get(tournamentId) ? {
-      id: tById.get(tournamentId).id,
-      name: tById.get(tournamentId).name,
-      startDate: tById.get(tournamentId).start_date,
-      endDate: tById.get(tournamentId).end_date,
-      venue: tById.get(tournamentId).venue,
-      format: tById.get(tournamentId).format,
-      status: tById.get(tournamentId).status,
-    } as Tournament : null : null;
+    const tObj = tournamentId ? (tById.get(tournamentId) as any) : null;
+    const tournamentPayload = tournamentId && tObj ? {
+      id: tObj.id as string,
+      name: tObj.name as string,
+      startDate: tObj.start_date as string,
+      endDate: tObj.end_date as string,
+      venue: tObj.venue as string,
+      format: tObj.format as string,
+      status: tObj.status as string,
+    } as Tournament : null;
 
     return NextResponse.json({
       tournament: tournamentPayload,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -41,6 +41,14 @@ interface Match {
 }
 
 export default function BracketBuilderPage() {
+  return (
+    <Suspense fallback={<div className="p-6">Loading...</div>}>
+      <BracketBuilderInner />
+    </Suspense>
+  );
+}
+
+function BracketBuilderInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const tournamentId = searchParams.get("tournamentId");

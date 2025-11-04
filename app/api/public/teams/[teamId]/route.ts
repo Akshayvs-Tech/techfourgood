@@ -3,14 +3,18 @@ import { getServiceSupabase } from "@/lib/supabaseClient";
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { teamId: string } }
+  context: { params: Promise<{ teamId: string }> | { teamId: string } }
 ) {
   try {
+    const resolved = (context?.params && typeof (context as any).params.then === "function")
+      ? await (context as any).params
+      : (context as any).params;
+    const teamId = resolved?.teamId;
     const db = getServiceSupabase();
     const { data, error } = await db
       .from("teams")
       .select("id, name")
-      .eq("id", params.teamId)
+      .eq("id", teamId)
       .maybeSingle();
     if (error) throw error;
     if (!data) return NextResponse.json({ message: "Not found" }, { status: 404 });

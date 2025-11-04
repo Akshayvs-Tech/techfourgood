@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -47,6 +47,14 @@ interface TimeSlot {
 }
 
 export default function MatchAssignmentPage() {
+  return (
+    <Suspense fallback={<div className="p-6">Loading...</div>}>
+      <MatchAssignmentInner />
+    </Suspense>
+  );
+}
+
+function MatchAssignmentInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const tournamentId = searchParams.get("tournamentId");
