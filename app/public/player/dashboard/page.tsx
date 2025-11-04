@@ -22,6 +22,7 @@ export default function PlayerDashboardPage() {
   const [teams, setTeams] = useState<TeamSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pendingSpirit, setPendingSpirit] = useState<Record<string, any[]>>({});
 
   useEffect(() => {
     const load = async () => {
@@ -156,6 +157,26 @@ export default function PlayerDashboardPage() {
       const validTeams = teamsWithDetails.filter((t) => t !== null) as TeamSummary[];
 
       setTeams(validTeams);
+
+      // Load pending spirit tasks for the player across tournaments
+      try {
+        const tIds = Array.from(new Set(validTeams.map(t=>t.tournament_id)));
+        if (tIds.length) {
+          const { data: { session } } = await supabase.auth.getSession();
+          const token = session?.access_token;
+          const res = await fetch(`/api/public/spirit-scores?status=pending`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          });
+          const j = await res.json();
+          const byTeam: Record<string, any[]> = {};
+          (j.items || []).forEach((it:any) => {
+            const key = it.scoringTeamId;
+            if (!byTeam[key]) byTeam[key] = [];
+            byTeam[key].push(it);
+          });
+          setPendingSpirit(byTeam);
+        }
+      } catch {}
       setLoading(false);
     };
     load();
@@ -274,6 +295,23 @@ export default function PlayerDashboardPage() {
                   <p className="text-sm text-green-700 font-medium">
                     ✓ Your team roster has been approved! You're all set for the tournament.
                   </p>
+                </div>
+              )}
+
+              {/* Pending Spirit Scores */}
+              {Array.isArray(pendingSpirit[team.team_id]) && pendingSpirit[team.team_id].length > 0 && (
+                <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm text-blue-800 font-semibold mb-2">Pending Spirit Scores</p>
+                  <div className="space-y-2">
+                    {pendingSpirit[team.team_id].map((it:any)=> (
+                      <div key={it.match.id} className="flex items-center justify-between text-sm">
+                        <div>
+                          Match #{it.match.id} • Field {it.match.field} • {it.match.scheduled_date} {it.match.scheduled_time}
+                        </div>
+                        <button className="px-3 py-1 rounded-md border" onClick={()=>window.location.assign(`/public/player/spirit?matchId=${it.match.id}&tournamentId=${team.tournament_id}`)}>Submit</button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
               

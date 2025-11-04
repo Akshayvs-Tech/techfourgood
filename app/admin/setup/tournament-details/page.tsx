@@ -178,7 +178,7 @@ export default function TournamentDetailsPage() {
         });
       }
 
-      // Redirect to forms setup page or back to dashboard
+      // Redirect to forms setup page or dedicated tournament dashboard
       if (!isEditMode) {
         router.push(`/admin/setup/forms-setup?tournamentId=${savedTournamentId}`);
       } else {

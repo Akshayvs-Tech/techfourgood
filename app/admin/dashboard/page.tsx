@@ -235,41 +235,50 @@ export default function AdminDashboardPage() {
   const fetchTournamentDetails = async () => {
     setIsLoading(true);
     setError(null);
-
     try {
-      // TODO: Replace with actual API call
-      const response = await fetch(`/api/admin/tournament/${tournamentId}`);
+      // Load tournament and live stats directly via Supabase
+      const { data: t, error: tErr } = await supabase
+        .from('tournaments')
+        .select('id,name,start_date,end_date,venue,max_teams,registration_deadline,status')
+        .eq('id', tournamentId)
+        .maybeSingle();
+      if (tErr || !t) throw tErr || new Error('Not found');
 
-      if (!response.ok) {
-        throw new Error("Failed to fetch tournament details");
-      }
+      const { count: teamsRegistered } = await supabase
+        .from('teams')
+        .select('id', { count: 'exact', head: true })
+        .eq('tournament_id', tournamentId);
+      const { count: teamsApproved } = await supabase
+        .from('teams')
+        .select('id', { count: 'exact', head: true })
+        .eq('tournament_id', tournamentId)
+        .ilike('status', 'approved%');
+      const teamsPending = Math.max((teamsRegistered || 0) - (teamsApproved || 0), 0);
+      const { count: matchesScheduled } = await supabase
+        .from('matches')
+        .select('id', { count: 'exact', head: true })
+        .eq('tournament_id', tournamentId);
 
-      const data = await response.json();
-      setTournament(data);
-    } catch (err) {
-      console.error("Error fetching tournament:", err);
-
-      // Mock tournament data for testing
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      const mockTournament: Tournament = {
-        id: tournamentId!,
-        name: "Summer Ultimate Championship 2024",
-        startDate: "2024-12-01",
-        endDate: "2024-12-07",
-        venue: "Central Sports Complex",
-        maxTeams: 16,
-        registrationDeadline: "2024-11-25",
-        status: "registration-open",
+      const mapped: Tournament = {
+        id: t.id,
+        name: t.name,
+        startDate: t.start_date,
+        endDate: t.end_date,
+        venue: t.venue,
+        maxTeams: t.max_teams || 0,
+        registrationDeadline: t.registration_deadline,
+        status: (String(t.status || 'draft').toLowerCase() as any),
         spiritConfigured: true,
-        teamsRegistered: 8,
-        teamsApproved: 5,
-        teamsPending: 3,
-        matchesScheduled: 24,
-        totalMatches: 48,
+        teamsRegistered: teamsRegistered || 0,
+        teamsApproved: teamsApproved || 0,
+        teamsPending,
+        matchesScheduled: matchesScheduled || 0,
+        totalMatches: matchesScheduled || 0,
       };
-
-      setTournament(mockTournament);
+      setTournament(mapped);
+    } catch (err) {
+      console.error('Error fetching tournament:', err);
+      setError('Failed to load tournament');
     } finally {
       setIsLoading(false);
     }
@@ -322,7 +331,7 @@ export default function AdminDashboardPage() {
       description: "Review and approve team registrations",
       status:
         tournament && tournament.teamsPending > 0 ? "pending" : "completed",
-      path: `/admin/reports/dashboard?tournamentId=${tournamentId}`,
+      path: `/admin/registration/roster-review?tournamentId=${tournamentId}`,
       icon: Users,
     },
     {
@@ -350,7 +359,7 @@ export default function AdminDashboardPage() {
       title: "View Schedule",
       description: "View published tournament schedule",
       icon: Calendar,
-      path: `/admin/scheduling/calendar?tournamentId=${tournamentId}`,
+      path: `/public/schedule?tournamentId=${tournamentId}`,
       enabled: tournament && tournament.matchesScheduled > 0,
     },
     {
@@ -460,17 +469,17 @@ export default function AdminDashboardPage() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
-        {/* Page Header */}
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-            Admin Dashboard
-          </h1>
-          <p className="text-gray-600 dark:text-gray-300">
-            {tournamentId 
-              ? "Manage your tournament setup and monitor progress"
-              : "Manage tournaments, admins, and coaches"}
-          </p>
-        </div>
+        {/* Page Header - hidden when viewing a specific tournament */}
+        {!tournamentId && (
+          <div className="mb-6">
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
+              Admin Dashboard
+            </h1>
+            <p className="text-gray-600 dark:text-gray-300">
+              Manage tournaments, admins, and coaches
+            </p>
+          </div>
+        )}
 
         {/* Error Message */}
         {error && (
@@ -491,7 +500,8 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
-        {/* Tabs */}
+        {/* Tabs - hidden when viewing a specific tournament */}
+        {!tournamentId && (
         <div className="mb-6 flex gap-2">
           <button
             className={`px-4 py-2 rounded-md border ${activeTab === "tournaments" ? "bg-blue-600 text-white border-blue-600" : "bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 border-gray-300 dark:border-gray-700"}`}
@@ -524,8 +534,9 @@ export default function AdminDashboardPage() {
             Coaching Sessions
           </button>
         </div>
+        )}
 
-        {activeTab === "tournaments" && (
+        {!tournamentId && activeTab === "tournaments" && (
         /* Centralized Dashboard: Tournaments list */
         <div className="mb-8">
           <div className="mb-4 flex justify-end">
@@ -599,7 +610,7 @@ export default function AdminDashboardPage() {
         </div>
         )}
 
-        {activeTab === "programManagers" && (
+        {!tournamentId && activeTab === "programManagers" && (
           <div className="space-y-6 mb-8">
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Add Program Manager</h2>
@@ -669,7 +680,7 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
-        {activeTab === "admins" && (
+        {!tournamentId && activeTab === "admins" && (
           <div className="space-y-6 mb-8">
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Add Admin</h2>
@@ -745,7 +756,7 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
-        {activeTab === "coaching" && (
+        {!tournamentId && activeTab === "coaching" && (
           <div className="space-y-6 mb-8">
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
               <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
@@ -896,7 +907,7 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
-        {activeTab === "coaches" && (
+        {!tournamentId && activeTab === "coaches" && (
           <div className="space-y-6 mb-8">
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Add Coach</h2>

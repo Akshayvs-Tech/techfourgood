@@ -140,4 +140,89 @@ create policy "Coaches manage home_visits" on public.home_visits
     exists (select 1 from public.coaches c where c.auth_user_id = auth.uid())
   );
 
+-- ============================================
+-- Spirit Scoring
+-- ============================================
+
+create table if not exists public.spirit_scores (
+  id uuid primary key default gen_random_uuid(),
+  match_id uuid not null references public.matches(id) on delete cascade,
+  scoring_team_id uuid not null references public.teams(id) on delete cascade,
+  scored_team_id uuid not null references public.teams(id) on delete cascade,
+  metrics jsonb not null default '{}'::jsonb,
+  total numeric not null default 0,
+  notes text,
+  submitted_by_player_id uuid references public.players(id) on delete set null,
+  created_at timestamptz default now(),
+  unique (match_id, scoring_team_id)
+);
+
+alter table public.spirit_scores enable row level security;
+
+-- Admins and PMs full access
+drop policy if exists "Admins manage spirit" on public.spirit_scores;
+create policy "Admins manage spirit" on public.spirit_scores
+  for all using (public.is_admin()) with check (public.is_admin());
+
+-- Players of scoring team can insert/update their own row
+drop policy if exists "Players write spirit" on public.spirit_scores;
+create policy "Players write spirit" on public.spirit_scores
+  for insert with check (
+    exists (
+      select 1 from public.players p
+      join public.team_members tm on tm.player_id = p.id and tm.team_id = spirit_scores.scoring_team_id
+      where p.auth_user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "Players read own team spirit" on public.spirit_scores;
+create policy "Players read own team spirit" on public.spirit_scores
+  for select using (
+    exists (
+      select 1 from public.players p
+      join public.team_members tm on tm.player_id = p.id and tm.team_id in (spirit_scores.scoring_team_id, spirit_scores.scored_team_id)
+      where p.auth_user_id = auth.uid()
+    ) or public.is_admin()
+  );
+
+-- Per-player spirit scoring
+create table if not exists public.spirit_player_scores (
+  id uuid primary key default gen_random_uuid(),
+  match_id uuid not null references public.matches(id) on delete cascade,
+  scoring_team_id uuid not null references public.teams(id) on delete cascade,
+  scored_player_id uuid not null references public.players(id) on delete cascade,
+  metrics jsonb not null default '{}'::jsonb,
+  total numeric not null default 0,
+  notes text,
+  created_at timestamptz default now(),
+  unique (match_id, scoring_team_id, scored_player_id)
+);
+
+alter table public.spirit_player_scores enable row level security;
+
+drop policy if exists "Admins manage spirit player" on public.spirit_player_scores;
+create policy "Admins manage spirit player" on public.spirit_player_scores
+  for all using (public.is_admin()) with check (public.is_admin());
+
+drop policy if exists "Players write spirit player" on public.spirit_player_scores;
+create policy "Players write spirit player" on public.spirit_player_scores
+  for insert with check (
+    exists (
+      select 1 from public.players p
+      join public.team_members tm on tm.player_id = p.id and tm.team_id = spirit_player_scores.scoring_team_id
+      where p.auth_user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "Players read spirit player" on public.spirit_player_scores;
+create policy "Players read spirit player" on public.spirit_player_scores
+  for select using (
+    public.is_admin() or exists (
+      select 1 from public.players p where p.auth_user_id = auth.uid()
+      and (p.id = spirit_player_scores.scored_player_id or exists (
+        select 1 from public.team_members tm where tm.player_id = p.id and tm.team_id = spirit_player_scores.scoring_team_id
+      ))
+    )
+  );
+
 
