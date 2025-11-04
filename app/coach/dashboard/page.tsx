@@ -45,7 +45,10 @@ export default function CoachDashboardPage() {
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold">Coach Dashboard</h1>
-          <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700">Sessions: {sessions.length}</span>
+          <div className="flex items-center gap-2">
+            <button className="text-sm px-3 py-1 rounded-md border hover:bg-gray-50" onClick={() => window.location.assign('/coach/home-visits')}>Home Visits</button>
+            <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700">Sessions: {sessions.length}</span>
+          </div>
         </div>
         {loading ? (
           <div className="space-y-3">

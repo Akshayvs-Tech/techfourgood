@@ -87,4 +87,57 @@ drop policy if exists "Admins manage registration_forms" on public.registration_
 create policy "Admins manage registration_forms" on public.registration_forms
   for all using (public.is_admin()) with check (public.is_admin());
 
+-- ============================================
+-- Coach Home Visits & Player Extra Details
+-- ============================================
+
+-- Store additional profile fields captured by coaches (address, etc)
+create table if not exists public.player_extra (
+  player_id uuid primary key references public.players(id) on delete cascade,
+  address text,
+  other_info jsonb not null default '{}'::jsonb,
+  updated_by uuid, -- coach id
+  updated_at timestamptz default now()
+);
+
+alter table public.player_extra enable row level security;
+
+drop policy if exists "Admins manage player_extra" on public.player_extra;
+create policy "Admins manage player_extra" on public.player_extra
+  for all using (public.is_admin()) with check (public.is_admin());
+
+-- Allow coaches to manage player_extra
+drop policy if exists "Coaches manage player_extra" on public.player_extra;
+create policy "Coaches manage player_extra" on public.player_extra
+  for all using (
+    exists (select 1 from public.coaches c where c.auth_user_id = auth.uid())
+  ) with check (
+    exists (select 1 from public.coaches c where c.auth_user_id = auth.uid())
+  );
+
+-- Home visit logs
+create table if not exists public.home_visits (
+  id uuid primary key default gen_random_uuid(),
+  player_id uuid not null references public.players(id) on delete cascade,
+  coach_id uuid not null references public.coaches(id) on delete set null,
+  visit_date date not null,
+  notes text,
+  created_at timestamptz default now()
+);
+
+create index if not exists idx_home_visits_player on public.home_visits(player_id);
+alter table public.home_visits enable row level security;
+
+drop policy if exists "Admins manage home_visits" on public.home_visits;
+create policy "Admins manage home_visits" on public.home_visits
+  for all using (public.is_admin()) with check (public.is_admin());
+
+drop policy if exists "Coaches manage home_visits" on public.home_visits;
+create policy "Coaches manage home_visits" on public.home_visits
+  for all using (
+    exists (select 1 from public.coaches c where c.auth_user_id = auth.uid())
+  ) with check (
+    exists (select 1 from public.coaches c where c.auth_user_id = auth.uid())
+  );
+
 
