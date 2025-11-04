@@ -1,9 +1,5 @@
 import { NextResponse, NextRequest } from "next/server";
-import { Pool } from "pg";
-
-const pool = new Pool({
-  connectionString: process.env.POSTGRES_URL,
-});
+import { getServiceSupabase } from "@/lib/supabaseClient";
 
 // 1. UPDATED: GET handler (to fetch one OR all assessments)
 export async function GET(request: NextRequest) {
@@ -17,70 +13,46 @@ export async function GET(request: NextRequest) {
       { status: 400 }
     );
   }
-
-  const client = await pool.connect();
   try {
-    let query;
-    let queryParams;
-
+    const db = getServiceSupabase();
     if (sessionId) {
-      // --- Logic 1: Get ONE assessment for a specific session ---
-      query = `
-        SELECT skill1_score, skill2_score, skill3_score, skill4_score, skill5_score, comments
-        FROM skill_assessments
-        WHERE session_id = $1 AND player_id = $2;
-      `;
-      queryParams = [sessionId, playerId];
-
-      const result = await client.query(query, queryParams);
-      if (result.rows.length === 0) {
-        return NextResponse.json(
-          { message: "Assessment not found" },
-          { status: 404 }
-        );
-      }
-
-      const dbRow = result.rows[0];
-      const assessment = {
-        skill1Score: dbRow.skill1_score,
-        skill2Score: dbRow.skill2_score,
-        skill3Score: dbRow.skill3_score,
-        skill4Score: dbRow.skill4_score,
-        skill5Score: dbRow.skill5_score,
-        comments: dbRow.comments,
-      };
-      return NextResponse.json(assessment);
-
+      const { data, error } = await db
+        .from("session_assessments")
+        .select("metrics, notes, score")
+        .eq("session_id", sessionId)
+        .eq("player_id", playerId)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return NextResponse.json({ message: "Assessment not found" }, { status: 404 });
+      const m = (data.metrics || {}) as any;
+      return NextResponse.json({
+        skill1Score: m.skill1 ?? null,
+        skill2Score: m.skill2 ?? null,
+        skill3Score: m.skill3 ?? null,
+        skill4Score: m.skill4 ?? null,
+        skill5Score: m.skill5 ?? null,
+        comments: data.notes ?? null,
+        score: data.score ?? null,
+      });
     } else {
-      // --- Logic 2: Get ALL assessments for one player ---
-      query = `
-        SELECT 
-          sa.session_id, 
-          s.date AS session_date, 
-          s.location AS session_location,
-          sa.skill1_score, sa.skill2_score, sa.skill3_score,
-          sa.skill4_score, sa.skill5_score, sa.comments
-        FROM skill_assessments sa
-        JOIN sessions s ON sa.session_id = s.id
-        WHERE sa.player_id = $1
-        ORDER BY s.date DESC; -- Tracked over time
-      `;
-      queryParams = [playerId];
-
-      const result = await client.query(query, queryParams);
-      
-      const feedbackHistory = result.rows.map(row => ({
-        sessionId: row.session_id.toString(),
-        sessionDate: row.session_date,
-        sessionLocation: row.session_location,
-        skill1Score: row.skill1_score,
-        skill2Score: row.skill2_score,
-        skill3Score: row.skill3_score,
-        skill4Score: row.skill4_score,
-        skill5Score: row.skill5_score,
-        comments: row.comments,
+      const { data, error } = await db
+        .from("session_assessments")
+        .select("session_id, metrics, notes, score, sessions!inner(date,location)")
+        .eq("player_id", playerId)
+        .order("sessions.date", { ascending: false });
+      if (error) throw error;
+      const feedbackHistory = (data || []).map((row: any) => ({
+        sessionId: row.session_id,
+        sessionDate: row.sessions?.date,
+        sessionLocation: row.sessions?.location,
+        skill1Score: row.metrics?.skill1 ?? null,
+        skill2Score: row.metrics?.skill2 ?? null,
+        skill3Score: row.metrics?.skill3 ?? null,
+        skill4Score: row.metrics?.skill4 ?? null,
+        skill5Score: row.metrics?.skill5 ?? null,
+        comments: row.notes ?? null,
+        score: row.score ?? null,
       }));
-      
       return NextResponse.json(feedbackHistory);
     }
   } catch (error) {
@@ -89,14 +61,11 @@ export async function GET(request: NextRequest) {
       { message: "Internal server error" },
       { status: 500 }
     );
-  } finally {
-    client.release();
   }
 }
 
 // 2. POST handler (to save or update an assessment)
 export async function POST(request: Request) {
-  const client = await pool.connect();
   try {
     const body = await request.json();
     const {
@@ -116,49 +85,27 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-
-    await client.query("BEGIN");
-
-    // "UPSERT" logic
-    const upsertQuery = `
-      INSERT INTO skill_assessments (
-        session_id, player_id, 
-        skill1_score, skill2_score, skill3_score, 
-        skill4_score, skill5_score, comments
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      ON CONFLICT (session_id, player_id) 
-      DO UPDATE SET
-        skill1_score = $3,
-        skill2_score = $4,
-        skill3_score = $5,
-        skill4_score = $6,
-        skill5_score = $7,
-        comments = $8;
-    `;
-
-    await client.query(upsertQuery, [
-      sessionId,
-      playerId,
-      skill1Score,
-      skill2Score,
-      skill3Score,
-      skill4Score,
-      skill5Score,
-      comments,
-    ]);
-
-    await client.query("COMMIT");
-
+    const db = getServiceSupabase();
+    const metrics = {
+      skill1: skill1Score ?? null,
+      skill2: skill2Score ?? null,
+      skill3: skill3Score ?? null,
+      skill4: skill4Score ?? null,
+      skill5: skill5Score ?? null,
+    };
+    const { error } = await db
+      .from("session_assessments")
+      .upsert(
+        [{ session_id: sessionId, player_id: playerId, metrics, notes: comments ?? null }],
+        { onConflict: "session_id,player_id" }
+      );
+    if (error) throw error;
     return NextResponse.json({ message: "Assessment saved successfully" });
   } catch (error) {
-    await client.query("ROLLBACK");
     console.error("Failed to save assessment:", error);
     return NextResponse.json(
       { message: "Internal server error" },
       { status: 500 }
     );
-  } finally {
-    client.release();
   }
 }

@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabaseClient";
 
 type AssignedSession = {
   id: string;
+  programId?: string;
   date: string;
   location: string;
   type: string;
@@ -52,12 +53,16 @@ export default function CoachDashboardPage() {
         ) : (
           <div className="space-y-3">
             {sessions.map((s) => (
-              <div key={s.id} className="border rounded-md p-3 bg-white cursor-pointer" onClick={() => window.location.assign(`/coach/sessions/${s.id}`)}>
+              <div key={s.id} className="border rounded-md p-3 bg-white">
                 <div className="font-medium">{new Date(s.date).toLocaleString()}</div>
                 <div className="text-sm text-gray-600">{s.location} • {s.type}</div>
                 {s.programName && (
-                  <div className="text-xs text-gray-500">Program: {s.programName}</div>
+                  <div className="text-xs text-gray-500 mb-2">Program: {s.programName}</div>
                 )}
+                <div className="flex flex-wrap gap-2">
+                  <button className="px-3 py-1 rounded-md border text-sm" onClick={() => window.location.assign(`/coach/sessions/${s.id}/attendance`)}>Attendance</button>
+                  <button className="px-3 py-1 rounded-md border text-sm" onClick={() => window.location.assign(`/coach/player-development/skill-assessment?programId=${s.programId || ""}`)}>Skill Assessment</button>
+                </div>
               </div>
             ))}
           </div>

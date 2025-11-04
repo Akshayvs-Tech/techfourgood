@@ -52,6 +52,7 @@ export async function GET(req: NextRequest) {
     const programById = new Map((programs || []).map((p: any) => [p.id, p.name]));
     const out = (sessions || []).map((s: any) => ({
       id: s.id,
+      programId: s.program_id,
       date: s.date,
       location: s.location,
       type: s.type,

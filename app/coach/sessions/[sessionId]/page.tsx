@@ -78,7 +78,15 @@ export default function CoachSessionDetailPage() {
           ) : (
             <ul className="space-y-1">
               {detail.roster.map((p) => (
-                <li key={p.id} className="text-sm">{p.name}</li>
+                <li key={p.id} className="text-sm flex items-center justify-between">
+                  <span>{p.name}</span>
+                  <button
+                    className="px-3 py-1 rounded-md border text-xs"
+                    onClick={() => router.push(`/coach/sessions/${detail.id}/feedback?playerId=${p.id}`)}
+                  >
+                    Feedback History
+                  </button>
+                </li>
               ))}
             </ul>
           )}

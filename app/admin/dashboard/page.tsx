@@ -698,6 +698,34 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
             </div>
+
+            {/* Coaching Analytics & Player Development */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+              <h3 className="text-md font-semibold text-gray-900 dark:text-white mb-4">Player Development & Analytics</h3>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  disabled={!selectedProgramId}
+                  onClick={() => selectedProgramId && window.location.assign(`/admin/coaching-management/player-development/skill-assessment?programId=${selectedProgramId}`)}
+                  className={`px-4 py-2 rounded-md border ${selectedProgramId ? "bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700" : "opacity-50 cursor-not-allowed"}`}
+                >
+                  Skill Assessment
+                </button>
+                <button
+                  disabled={!selectedProgramId}
+                  onClick={() => selectedProgramId && window.location.assign(`/admin/coaching-management/player-development/feedback?programId=${selectedProgramId}`)}
+                  className={`px-4 py-2 rounded-md border ${selectedProgramId ? "bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700" : "opacity-50 cursor-not-allowed"}`}
+                >
+                  Feedback History
+                </button>
+                <button
+                  disabled={!selectedProgramId}
+                  onClick={() => selectedProgramId && window.location.assign(`/admin/coaching-management/analytics/performance-dashboard?programId=${selectedProgramId}`)}
+                  className={`px-4 py-2 rounded-md ${selectedProgramId ? "bg-blue-600 text-white hover:bg-blue-700" : "bg-blue-600/50 text-white cursor-not-allowed"}`}
+                >
+                  Performance Dashboard
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
