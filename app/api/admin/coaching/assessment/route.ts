@@ -5,48 +5,86 @@ const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
 });
 
-// 1. GET handler (to fetch a specific assessment)
+// 1. UPDATED: GET handler (to fetch one OR all assessments)
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const sessionId = searchParams.get("sessionId");
   const playerId = searchParams.get("playerId");
+  const sessionId = searchParams.get("sessionId");
 
-  if (!sessionId || !playerId) {
+  if (!playerId) {
     return NextResponse.json(
-      { message: "Missing sessionId or playerId" },
+      { message: "Missing required query parameter: playerId" },
       { status: 400 }
     );
   }
 
   const client = await pool.connect();
   try {
-    const query = `
-      SELECT skill1_score, skill2_score, skill3_score, skill4_score, skill5_score, comments
-      FROM skill_assessments
-      WHERE session_id = $1 AND player_id = $2;
-    `;
-    const result = await client.query(query, [sessionId, playerId]);
+    let query;
+    let queryParams;
 
-    if (result.rows.length === 0) {
-      return NextResponse.json(
-        { message: "Assessment not found" },
-        { status: 404 }
-      );
+    if (sessionId) {
+      // --- Logic 1: Get ONE assessment for a specific session ---
+      query = `
+        SELECT skill1_score, skill2_score, skill3_score, skill4_score, skill5_score, comments
+        FROM skill_assessments
+        WHERE session_id = $1 AND player_id = $2;
+      `;
+      queryParams = [sessionId, playerId];
+
+      const result = await client.query(query, queryParams);
+      if (result.rows.length === 0) {
+        return NextResponse.json(
+          { message: "Assessment not found" },
+          { status: 404 }
+        );
+      }
+
+      const dbRow = result.rows[0];
+      const assessment = {
+        skill1Score: dbRow.skill1_score,
+        skill2Score: dbRow.skill2_score,
+        skill3Score: dbRow.skill3_score,
+        skill4Score: dbRow.skill4_score,
+        skill5Score: dbRow.skill5_score,
+        comments: dbRow.comments,
+      };
+      return NextResponse.json(assessment);
+
+    } else {
+      // --- Logic 2: Get ALL assessments for one player ---
+      query = `
+        SELECT 
+          sa.session_id, 
+          s.date AS session_date, 
+          s.location AS session_location,
+          sa.skill1_score, sa.skill2_score, sa.skill3_score,
+          sa.skill4_score, sa.skill5_score, sa.comments
+        FROM skill_assessments sa
+        JOIN sessions s ON sa.session_id = s.id
+        WHERE sa.player_id = $1
+        ORDER BY s.date DESC; -- Tracked over time
+      `;
+      queryParams = [playerId];
+
+      const result = await client.query(query, queryParams);
+      
+      const feedbackHistory = result.rows.map(row => ({
+        sessionId: row.session_id.toString(),
+        sessionDate: row.session_date,
+        sessionLocation: row.session_location,
+        skill1Score: row.skill1_score,
+        skill2Score: row.skill2_score,
+        skill3Score: row.skill3_score,
+        skill4Score: row.skill4_score,
+        skill5Score: row.skill5_score,
+        comments: row.comments,
+      }));
+      
+      return NextResponse.json(feedbackHistory);
     }
-
-    const dbRow = result.rows[0];
-    const assessment = {
-      skill1Score: dbRow.skill1_score,
-      skill2Score: dbRow.skill2_score,
-      skill3Score: dbRow.skill3_score,
-      skill4Score: dbRow.skill4_score,
-      skill5Score: dbRow.skill5_score,
-      comments: dbRow.comments,
-    };
-
-    return NextResponse.json(assessment);
   } catch (error) {
-    console.error("Failed to fetch assessment:", error);
+    console.error("Failed to fetch assessment(s):", error);
     return NextResponse.json(
       { message: "Internal server error" },
       { status: 500 }
@@ -72,7 +110,6 @@ export async function POST(request: Request) {
       comments,
     } = body;
 
-    // Basic validation
     if (!sessionId || !playerId || !skill1Score) {
       return NextResponse.json(
         { message: "Missing required assessment data" },
@@ -82,7 +119,7 @@ export async function POST(request: Request) {
 
     await client.query("BEGIN");
 
-    // Use "UPSERT" logic (ON CONFLICT... DO UPDATE)
+    // "UPSERT" logic
     const upsertQuery = `
       INSERT INTO skill_assessments (
         session_id, player_id, 
