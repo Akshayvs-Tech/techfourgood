@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServiceSupabase } from "@/lib/supabaseClient";
 
 interface UpdateStatusRequest {
   teamId: string;
@@ -43,32 +44,61 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(`Updating team ${teamId} status to ${status}`);
+    const db = getServiceSupabase();
+    
+    // Get team info first to find tournament_id
+    const { data: teamInfo } = await db
+      .from("teams")
+      .select("id, name, tournament_id, captain_email, captain_name")
+      .eq("id", teamId)
+      .single();
 
-    // TODO: Update team status in database
-    // const updatedTeam = await db.teams.update({
-    //   where: { id: teamId },
-    //   data: {
-    //     status,
-    //     rejectionReason: status === 'rejected' ? rejectionReason : null,
-    //     reviewedAt: new Date(),
-    //   },
-    //   include: {
-    //     captain: true,
-    //   },
-    // });
+    if (!teamInfo) {
+      throw new Error("Team not found");
+    }
 
-    // Mock database update
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    // Update team status
+    const { data: teamRow, error: teamErr } = await db
+      .from("teams")
+      .update({
+        status,
+        rejection_reason: status === "rejected" ? rejectionReason || null : null,
+        reviewed_at: new Date().toISOString(),
+      })
+      .eq("id", teamId)
+      .select("id,name,captain_email,captain_name")
+      .maybeSingle();
+    
+    if (teamErr || !teamRow) {
+      throw teamErr || new Error("Failed to update team");
+    }
+
+    // Update team_rosters status to match team status
+    // Map team status (approved/rejected) to roster status (Approved/Rejected)
+    const rosterStatus = status === "approved" ? "Approved" : "Rejected";
+    
+    const { error: rosterErr } = await db
+      .from("team_rosters")
+      .update({
+        status: rosterStatus,
+        reviewed_at: new Date().toISOString(),
+      })
+      .eq("team_id", teamId)
+      .eq("tournament_id", teamInfo.tournament_id);
+
+    if (rosterErr) {
+      console.warn("Failed to update team_rosters status:", rosterErr);
+      // Don't fail the whole operation if roster update fails
+    }
 
     const mockUpdatedTeam: TeamData = {
-      id: teamId,
-      teamName: "Thunder Bolts",
+      id: teamRow.id,
+      teamName: teamRow.name,
       status,
       rejectionReason: status === "rejected" ? rejectionReason! : null,
       reviewedAt: new Date().toISOString(),
-      captainEmail: "captain@team.com",
-      captainName: "John Smith",
+      captainEmail: teamRow.captain_email || "",
+      captainName: teamRow.captain_name || "",
     };
 
     // Send email notification to team captain

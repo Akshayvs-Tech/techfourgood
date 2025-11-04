@@ -7,6 +7,15 @@ import { Button } from "@/components/ui/button";
 interface PlayerData {
   fullName: string;
   email: string;
+  password: string;
+  contactNumber: string;
+  gender: string;
+  dateOfBirth: string;
+}
+
+interface RosterPlayer {
+  fullName: string;
+  email: string;
   contactNumber: string;
   gender: string;
   dateOfBirth: string;
@@ -15,7 +24,7 @@ interface PlayerData {
 interface TeamRosterData {
   teamName: string;
   joinExistingTeam: string;
-  rosterPlayers: string[];
+  rosterPlayers: RosterPlayer[];
 }
 
 export default function RegisterPage() {
@@ -31,6 +40,7 @@ export default function RegisterPage() {
   const [playerData, setPlayerData] = useState<PlayerData>({
     fullName: "",
     email: "",
+    password: "",
     contactNumber: "",
     gender: "",
     dateOfBirth: "",
@@ -43,8 +53,15 @@ export default function RegisterPage() {
     rosterPlayers: [],
   });
 
-  // Additional player input for roster
-  const [newPlayerName, setNewPlayerName] = useState("");
+  // Additional player form for roster
+  const [showPlayerForm, setShowPlayerForm] = useState(false);
+  const [newPlayer, setNewPlayer] = useState<RosterPlayer>({
+    fullName: "",
+    email: "",
+    contactNumber: "",
+    gender: "",
+    dateOfBirth: "",
+  });
 
   // Form validation errors
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -67,6 +84,12 @@ export default function RegisterPage() {
       newErrors.email = "Email is required";
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(playerData.email)) {
       newErrors.email = "Invalid email format";
+    }
+
+    if (!playerData.password.trim()) {
+      newErrors.password = "Password is required";
+    } else if (playerData.password.length < 6) {
+      newErrors.password = "Password must be at least 6 characters";
     }
 
     if (!playerData.contactNumber.trim()) {
@@ -102,38 +125,142 @@ export default function RegisterPage() {
       newErrors.roster = `Roster cannot exceed 10 players (currently ${totalPlayers})`;
     }
 
+    // Validate all roster players have required fields
+    teamRosterData.rosterPlayers.forEach((player, index) => {
+      if (!player.fullName.trim()) {
+        newErrors[`rosterPlayer${index}`] = `Player ${index + 1} is missing full name`;
+      }
+      if (!player.email.trim()) {
+        newErrors[`rosterPlayer${index}`] = `Player ${index + 1} is missing email`;
+      }
+      if (!player.contactNumber.trim()) {
+        newErrors[`rosterPlayer${index}`] = `Player ${index + 1} is missing contact number`;
+      }
+      if (!player.gender) {
+        newErrors[`rosterPlayer${index}`] = `Player ${index + 1} is missing gender`;
+      }
+      if (!player.dateOfBirth) {
+        newErrors[`rosterPlayer${index}`] = `Player ${index + 1} is missing date of birth`;
+      }
+    });
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   // Handle Step 1 submission
-  const handlePlayerRegistration = (e: React.FormEvent) => {
+  const handlePlayerRegistration = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (validatePlayerData()) {
-      // Simulate API call
-      console.log("Player Registration Data:", playerData);
+      try {
+        // Create player account with password
+        const response = await fetch("/api/auth/player/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fullName: playerData.fullName,
+            email: playerData.email,
+            password: playerData.password,
+            contactNumber: playerData.contactNumber,
+            gender: playerData.gender,
+            dateOfBirth: playerData.dateOfBirth,
+            tournamentId: tournamentId,
+          }),
+        });
 
-      // Add registered player to roster automatically
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.message || "Failed to create player account");
+        }
+
+        // Log in the player automatically
+        const { supabase } = await import("@/lib/supabaseClient");
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: playerData.email,
+          password: playerData.password,
+        });
+
+        if (signInError) {
+          console.warn("Auto-login failed:", signInError);
+        }
+
+      // Save progress - player is now in the flow for this tournament
+      // Add captain as first roster player
       setTeamRosterData({
         ...teamRosterData,
-        rosterPlayers: [playerData.fullName],
+        rosterPlayers: [{
+          fullName: playerData.fullName,
+          email: playerData.email,
+          contactNumber: playerData.contactNumber,
+          gender: playerData.gender,
+          dateOfBirth: playerData.dateOfBirth,
+        }],
       });
 
-      // Move to Step 2
-      setCurrentStep(2);
-      setErrors({});
+        setCurrentStep(2);
+        setErrors({});
+      } catch (err) {
+        console.error("Player registration error:", err);
+        setErrors({
+          submit: err instanceof Error ? err.message : "Failed to create account. Please try again.",
+        });
+      }
     }
   };
 
   // Handle adding additional players to roster
   const handleAddPlayer = () => {
-    if (newPlayerName.trim() && teamRosterData.rosterPlayers.length < 10) {
+    // Validate new player data
+    if (!newPlayer.fullName.trim()) {
+      setErrors({ playerForm: "Full name is required" });
+      return;
+    }
+    if (!newPlayer.email.trim()) {
+      setErrors({ playerForm: "Email is required" });
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newPlayer.email)) {
+      setErrors({ playerForm: "Invalid email format" });
+      return;
+    }
+    if (!newPlayer.contactNumber.trim()) {
+      setErrors({ playerForm: "Contact number is required" });
+      return;
+    }
+    if (!newPlayer.gender) {
+      setErrors({ playerForm: "Gender is required" });
+      return;
+    }
+    if (!newPlayer.dateOfBirth) {
+      setErrors({ playerForm: "Date of birth is required" });
+      return;
+    }
+
+    // Check if email already exists in roster
+    const emailExists = teamRosterData.rosterPlayers.some(
+      (p) => p.email.toLowerCase() === newPlayer.email.toLowerCase()
+    );
+    if (emailExists) {
+      setErrors({ playerForm: "This email is already in the roster" });
+      return;
+    }
+
+    if (teamRosterData.rosterPlayers.length < 10) {
       setTeamRosterData({
         ...teamRosterData,
-        rosterPlayers: [...teamRosterData.rosterPlayers, newPlayerName.trim()],
+        rosterPlayers: [...teamRosterData.rosterPlayers, { ...newPlayer }],
       });
-      setNewPlayerName("");
+      // Reset form
+      setNewPlayer({
+        fullName: "",
+        email: "",
+        contactNumber: "",
+        gender: "",
+        dateOfBirth: "",
+      });
+      setShowPlayerForm(false);
+      setErrors({});
     }
   };
 
@@ -181,10 +308,8 @@ export default function RegisterPage() {
         const result = await response.json();
         const teamId = result.teamId; // Get the created team ID
 
-        // Redirect to roster submission page with both IDs
-        router.push(
-          `/public/register/roster-submit?tournamentId=${tournamentId}&teamId=${teamId}`
-        );
+        // Redirect to player dashboard
+        router.push(`/public/player/dashboard`);
       } catch (error) {
         console.error("Registration error:", error);
         setErrors({ submit: "Failed to register team. Please try again." });
@@ -304,6 +429,7 @@ export default function RegisterPage() {
                   setPlayerData({
                     fullName: "",
                     email: "",
+                    password: "",
                     contactNumber: "",
                     gender: "",
                     dateOfBirth: "",
@@ -518,6 +644,59 @@ export default function RegisterPage() {
                 )}
               </div>
 
+              {/* Password */}
+              <div className="space-y-2">
+                <label
+                  htmlFor="password"
+                  className="block text-sm font-semibold text-gray-700"
+                >
+                  Password <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <svg
+                      className="h-5 w-5 text-gray-400"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                      />
+                    </svg>
+                  </div>
+                  <input
+                    type="password"
+                    id="password"
+                    value={playerData.password}
+                    onChange={(e) =>
+                      setPlayerData({ ...playerData, password: e.target.value })
+                    }
+                    className="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-gray-900 placeholder-gray-500 bg-white"
+                    placeholder="Enter your password (min 6 characters)"
+                  />
+                </div>
+                {errors.password && (
+                  <p className="text-sm text-red-600 flex items-center">
+                    <svg
+                      className="w-4 h-4 mr-1"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                    {errors.password}
+                  </p>
+                )}
+              </div>
+
               {/* Contact Number */}
               <div className="space-y-2">
                 <label
@@ -652,6 +831,25 @@ export default function RegisterPage() {
                   )}
                 </div>
               </div>
+
+              {errors.submit && (
+                <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-sm text-red-600 flex items-center">
+                    <svg
+                      className="w-4 h-4 mr-2"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                    {errors.submit}
+                  </p>
+                </div>
+              )}
 
               <div className="pt-4">
                 <Button
@@ -904,9 +1102,14 @@ export default function RegisterPage() {
                                 {index + 1}
                               </span>
                             </div>
-                            <span className="ml-3 text-gray-900 font-medium">
-                              {player}
-                            </span>
+                            <div className="ml-3">
+                              <span className="text-gray-900 font-medium block">
+                                {player.fullName}
+                              </span>
+                              <div className="text-xs text-gray-500 mt-1">
+                                {player.email} • {player.contactNumber}
+                              </div>
+                            </div>
                             {index === 0 && (
                               <span className="ml-3 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
                                 <svg
@@ -954,29 +1157,12 @@ export default function RegisterPage() {
 
                 {/* Add Player */}
                 {teamRosterData.rosterPlayers.length < 10 && (
-                  <div className="space-y-2">
-                    <label className="block text-sm font-medium text-gray-700">
-                      Add Team Member
-                    </label>
-                    <div className="flex gap-3">
-                      <input
-                        type="text"
-                        value={newPlayerName}
-                        onChange={(e) => setNewPlayerName(e.target.value)}
-                        onKeyPress={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            handleAddPlayer();
-                          }
-                        }}
-                        className="flex-1 px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-gray-900 placeholder-gray-500 bg-white"
-                        placeholder="Enter player name"
-                      />
-                      <Button
+                  <div className="space-y-4">
+                    {!showPlayerForm ? (
+                      <button
                         type="button"
-                        onClick={handleAddPlayer}
-                        disabled={!newPlayerName.trim()}
-                        className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-medium flex items-center"
+                        onClick={() => setShowPlayerForm(true)}
+                        className="w-full px-4 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium flex items-center justify-center"
                       >
                         <svg
                           className="w-4 h-4 mr-2"
@@ -991,9 +1177,142 @@ export default function RegisterPage() {
                             d="M12 6v6m0 0v6m0-6h6m-6 0H6"
                           />
                         </svg>
-                        Add Player
-                      </Button>
-                    </div>
+                        Add Team Member
+                      </button>
+                    ) : (
+                      <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 space-y-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="font-semibold text-gray-900">Add New Team Member</h4>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowPlayerForm(false);
+                              setNewPlayer({
+                                fullName: "",
+                                email: "",
+                                contactNumber: "",
+                                gender: "",
+                                dateOfBirth: "",
+                              });
+                              setErrors({});
+                            }}
+                            className="text-gray-500 hover:text-gray-700"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+
+                        {errors.playerForm && (
+                          <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                            <p className="text-sm text-red-600">{errors.playerForm}</p>
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {/* Full Name */}
+                          <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">
+                              Full Name <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                              type="text"
+                              value={newPlayer.fullName}
+                              onChange={(e) => setNewPlayer({ ...newPlayer, fullName: e.target.value })}
+                              className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+                              placeholder="Enter full name"
+                            />
+                          </div>
+
+                          {/* Email */}
+                          <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">
+                              Email Address <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                              type="email"
+                              value={newPlayer.email}
+                              onChange={(e) => setNewPlayer({ ...newPlayer, email: e.target.value })}
+                              className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+                              placeholder="player@example.com"
+                            />
+                          </div>
+
+                          {/* Contact Number */}
+                          <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">
+                              Phone Number <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                              type="tel"
+                              value={newPlayer.contactNumber}
+                              onChange={(e) => setNewPlayer({ ...newPlayer, contactNumber: e.target.value })}
+                              className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+                              placeholder="+1 (555) 123-4567"
+                            />
+                          </div>
+
+                          {/* Gender */}
+                          <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">
+                              Gender <span className="text-red-500">*</span>
+                            </label>
+                            <select
+                              value={newPlayer.gender}
+                              onChange={(e) => setNewPlayer({ ...newPlayer, gender: e.target.value })}
+                              className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 bg-white"
+                            >
+                              <option value="">Select gender</option>
+                              <option value="male">Male</option>
+                              <option value="female">Female</option>
+                              <option value="other">Other</option>
+                            </select>
+                          </div>
+
+                          {/* Date of Birth */}
+                          <div className="md:col-span-2">
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">
+                              Date of Birth <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                              type="date"
+                              value={newPlayer.dateOfBirth}
+                              onChange={(e) => setNewPlayer({ ...newPlayer, dateOfBirth: e.target.value })}
+                              className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex gap-3 pt-2">
+                          <Button
+                            type="button"
+                            onClick={handleAddPlayer}
+                            className="flex-1 bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg"
+                          >
+                            Add to Roster
+                          </Button>
+                          <Button
+                            type="button"
+                            onClick={() => {
+                              setShowPlayerForm(false);
+                              setNewPlayer({
+                                fullName: "",
+                                email: "",
+                                contactNumber: "",
+                                gender: "",
+                                dateOfBirth: "",
+                              });
+                              setErrors({});
+                            }}
+                            variant="outline"
+                            className="px-4 py-2 border-gray-300 text-gray-700 hover:bg-gray-50 rounded-lg"
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 

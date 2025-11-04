@@ -1,6 +1,7 @@
 "use client";
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
 
 interface TournamentFormData {
   name: string; 
@@ -17,6 +18,10 @@ interface TournamentFormData {
 
 export default function TournamentDetailsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const tournamentId = searchParams.get("tournamentId");
+  const isEditMode = !!tournamentId;
+
   const [formData, setFormData] = useState<TournamentFormData>({
     name: "", 
     startDate: "",
@@ -31,7 +36,49 @@ export default function TournamentDetailsPage() {
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Load tournament data if editing
+  useEffect(() => {
+    if (tournamentId) {
+      loadTournament();
+    }
+  }, [tournamentId]);
+
+  const loadTournament = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const { data, error: fetchError } = await supabase
+        .from("tournaments")
+        .select("*")
+        .eq("id", tournamentId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      if (data) {
+        setFormData({
+          name: data.name || "",
+          startDate: data.start_date ? new Date(data.start_date).toISOString().split("T")[0] : "",
+          endDate: data.end_date ? new Date(data.end_date).toISOString().split("T")[0] : "",
+          registrationDeadline: data.registration_deadline ? new Date(data.registration_deadline).toISOString().split("T")[0] : "",
+          venue: data.venue || "",
+          fields: data.fields && data.fields.length > 0 ? data.fields : [""],
+          rules: data.rules || "",
+          format: data.format || "",
+          maxTeams: data.max_teams || 16,
+          status: (data.status as "Setup" | "Active" | "Complete") || "Setup",
+        });
+      }
+    } catch (err) {
+      console.error("Error loading tournament:", err);
+      setError(err instanceof Error ? err.message : "Failed to load tournament");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleInputChange = (
     e: React.ChangeEvent<
@@ -93,25 +140,30 @@ export default function TournamentDetailsPage() {
      
 
       const response = await fetch("/api/admin/setup/tournament", {
-        method: "POST",
+        method: isEditMode ? "PUT" : "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(tournamentData),
+        body: JSON.stringify({
+          ...tournamentData,
+          id: tournamentId || undefined,
+        }),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to create tournament");
+        throw new Error(errorData.message || `Failed to ${isEditMode ? "update" : "create"} tournament`);
       }
 
       const result = await response.json();
-      
+      const savedTournamentId = result.tournament?.id || tournamentId;
 
-      // Redirect to forms setup page
-      router.push(
-        `/admin/setup/forms-setup?tournamentId=${result.tournament.id}`
-      );
+      // Redirect to forms setup page or back to dashboard
+      if (!isEditMode) {
+        router.push(`/admin/setup/forms-setup?tournamentId=${savedTournamentId}`);
+      } else {
+        router.push(`/admin/dashboard?tournamentId=${savedTournamentId}`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
       console.error("Error creating tournament:", err); // For debugging
@@ -120,12 +172,22 @@ export default function TournamentDetailsPage() {
     }
   };
 
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-gray-600">Loading tournament details...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-3xl mx-auto">
         <div className="bg-white shadow-md rounded-lg p-6">
           <h1 className="text-3xl font-bold text-gray-900 mb-6">
-            Create Tournament
+            {isEditMode ? "Edit Tournament" : "Create Tournament"}
           </h1>
 
           {error && (
@@ -342,8 +404,8 @@ export default function TournamentDetailsPage() {
                 className="flex-1 bg-blue-600 text-white py-3 px-6 rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium"
               >
                 {isSubmitting
-                  ? "Creating Tournament..."
-                  : "Save & Next: Forms Setup"}
+                  ? (isEditMode ? "Updating Tournament..." : "Creating Tournament...")
+                  : (isEditMode ? "Save Changes" : "Save & Next: Forms Setup")}
               </button>
               <button
                 type="button"
